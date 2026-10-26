@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "bookmark_library": {
+      "command": "./scripts/launch.sh",
+      "args": [],
+      "cwd": "./"
+    }
+  }
+}

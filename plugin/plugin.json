@@ -1,0 +1,32 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bookmark-library",
+  "version": "0.5.1",
+  "description": "Import X bookmarks and recall their text, images, videos and speech with local search.",
+  "author": {
+    "name": "Phil"
+  },
+  "license": "MIT",
+  "keywords": ["bookmarks", "local", "search"],
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "onboardingSkill": "./skills/setup/SKILL.md",
+      "interface": {
+        "displayName": "Bookmark Library",
+        "shortDescription": "Your X bookmarks, searchable locally",
+        "longDescription": "Connect X, import or sync bookmarks, and search their text, images, videos and transcripts from ChatGPT. Media processing and embeddings run on your Apple silicon Mac.",
+        "developerName": "Phil",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "composerIcon": "./assets/x-bookmark.png",
+        "logo": "./assets/x-bookmark.png",
+        "defaultPrompt": [
+          "Search my bookmarks for\u2026",
+          "Open Bookmark Library"
+        ]
+      },
+      "mcpServers": "./.mcp.json"
+    }
+  }
+}

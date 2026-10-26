@@ -1,0 +1,24 @@
+{
+  "name": "codex-bookmark-library",
+  "version": "0.5.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:native": "python3 scripts/build-native.py",
+    "package": "python3 scripts/package.py",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "1.7.5",
+    "@modelcontextprotocol/server": "2.3.1",
+    "@openai/mcp-extensions": "0.2.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "esbuild": "0.25.12",
+    "prettier": "3.9.10",
+    "typescript": "5.9.3"
+  }
+}

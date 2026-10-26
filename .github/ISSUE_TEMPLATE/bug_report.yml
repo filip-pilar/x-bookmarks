@@ -1,0 +1,25 @@
+name: Bug report
+description: Report an installation, import or processing failure.
+body:
+  - type: markdown
+    attributes:
+      value: "Share redacted summaries only. Do not attach Client IDs, tokens, OAuth URLs, service.json, personal bookmarks or unredacted logs."
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version and macOS version
+      placeholder: "0.5.1; macOS 26; Apple silicon"
+    validations:
+      required: true
+  - type: textarea
+    id: failure
+    attributes:
+      label: What happened?
+      description: Include the exact redacted error, expected behavior and the last completed step.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostic summary
+      description: "Useful details: saved/searchable counts, sync phase/page count, HTTP status codes, folder completion and top coverage warnings. For a macOS alert, give its exact wording and executable name."

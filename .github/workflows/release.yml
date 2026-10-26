@@ -1,0 +1,68 @@
+name: Build release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build (for example v0.5.1)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: plugin/package-lock.json
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Check version and Python syntax
+        run: |
+          python3 scripts/check-release.py --tag "$RELEASE_TAG"
+          python3 -m compileall -q plugin/python plugin/scripts plugin/vendor/transcribe/scripts scripts
+      - run: npm ci
+        working-directory: plugin
+      - name: Build plugin and native helpers
+        run: |
+          npm run check
+          npm run build
+          npm run build:native
+          npm run package
+        working-directory: plugin
+      - name: Verify public archive
+        run: python3 scripts/check-release.py --tag "$RELEASE_TAG" --archive release/bookmark-library-release.zip
+      - name: Prepare release assets
+        run: |
+          shasum -a 256 bookmark-library-release.zip > SHA256SUMS
+          cp ../docs/SETUP_PROMPT.md SETUP_PROMPT.md
+          cp ../docs/UPDATE_PROMPT.md UPDATE_PROMPT.md
+        working-directory: release
+      - name: Prepare draft preview
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/bookmark-release-draft.txt" 2>/dev/null; then
+            if [ "$(cat "$RUNNER_TEMP/bookmark-release-draft.txt")" != true ]; then
+              echo "Refusing to replace an already published release. Use a new version."
+              exit 1
+            fi
+            gh release upload "$RELEASE_TAG" release/bookmark-library-release.zip release/SHA256SUMS release/SETUP_PROMPT.md release/UPDATE_PROMPT.md --clobber
+          else
+            gh release create "$RELEASE_TAG" release/bookmark-library-release.zip release/SHA256SUMS release/SETUP_PROMPT.md release/UPDATE_PROMPT.md --verify-tag --draft --prerelease --title "$RELEASE_TAG (preview)" --notes-file docs/KNOWN_ISSUES.md --generate-notes
+          fi

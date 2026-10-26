@@ -1,0 +1,861 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bookmark Library</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: var(
+          --font-sans,
+          -apple-system,
+          BlinkMacSystemFont,
+          "SF Pro Text",
+          system-ui,
+          sans-serif
+        );
+        color: var(--color-text-primary, light-dark(#242424, #ededed));
+        background: var(--color-background-primary, light-dark(#fff, #212121));
+        --surface: var(--color-background-primary, light-dark(#fff, #212121));
+        --secondary: var(--color-text-secondary, light-dark(#737373, #a6a6a6));
+        --line: var(--color-border-secondary, light-dark(#e9e9e9, #383838));
+        --soft: var(--color-background-secondary, light-dark(#f5f5f5, #2c2c2c));
+        --accent: var(--color-text-primary, light-dark(#242424, #ededed));
+        --inverse: var(--color-text-inverse, light-dark(#fff, #212121));
+        --good: var(--color-text-success, light-dark(#35845b, #79bf96));
+        --amber: var(--color-text-warning, light-dark(#986a24, #d1ad70));
+        font-size: 14px;
+        -webkit-font-smoothing: antialiased;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      main {
+        max-width: 576px;
+        margin: 0 auto;
+        padding: 48px 28px 32px;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      p {
+        line-height: 1.5;
+      }
+      button {
+        font: inherit;
+        cursor: pointer;
+        color: inherit;
+        border: 0;
+        background: transparent;
+        border-radius: var(--border-radius-md, 8px);
+        min-height: 36px;
+        padding: 8px 12px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button:focus-visible,
+      summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+      }
+      button:hover:not(:disabled) {
+        background: var(--soft);
+      }
+      .primary {
+        background: var(--accent);
+        color: var(--inverse);
+      }
+      .primary:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--accent) 83%, var(--surface));
+      }
+      .secondary {
+        border: 1px solid var(--line);
+      }
+      .danger {
+        color: var(--color-text-danger, light-dark(#ba3633, #ef8784));
+      }
+      .danger.primary {
+        background: #b63330;
+        color: white;
+      }
+      svg {
+        display: block;
+        flex: 0 0 auto;
+      }
+      .icon {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.65;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .app-header {
+        display: grid;
+        grid-template-columns: 48px minmax(0, 1fr) 36px;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 32px;
+      }
+      .brand-mark {
+        width: 48px;
+        height: 48px;
+        fill: currentColor;
+      }
+      .identity {
+        min-width: 0;
+      }
+      h1 {
+        font-size: 20px;
+        line-height: 1.3;
+        font-weight: 600;
+        letter-spacing: -0.5px;
+      }
+      .account {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--secondary);
+        font-size: 12px;
+        margin-top: 5px;
+      }
+      .dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--secondary);
+      }
+      .dot.on {
+        background: var(--good);
+      }
+      #settings {
+        display: grid;
+        place-items: center;
+        width: 36px;
+        padding: 8px;
+        color: var(--secondary);
+      }
+      .overview {
+        border: 1px solid var(--line);
+        border-radius: var(--border-radius-lg, 14px);
+        padding: 22px;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 20px;
+        padding-bottom: 22px;
+      }
+      .stat strong {
+        display: block;
+        font-size: 30px;
+        font-weight: 550;
+        letter-spacing: -0.8px;
+        line-height: 1.2;
+        font-variant-numeric: tabular-nums;
+      }
+      .stat span {
+        display: block;
+        color: var(--secondary);
+        font-size: 12px;
+        margin-top: 5px;
+      }
+      .overview-bottom {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+      }
+      .status {
+        min-width: 0;
+        font-size: 12px;
+        color: var(--secondary);
+      }
+      #detail {
+        font-size: 12px;
+        margin-top: 5px;
+        overflow-wrap: anywhere;
+      }
+      .actions {
+        display: flex;
+        gap: 6px;
+        flex: 0 0 auto;
+      }
+      #progress {
+        display: block;
+        width: 100%;
+        height: 4px;
+        border: 0;
+        border-radius: 4px;
+        overflow: hidden;
+        margin-top: 16px;
+        accent-color: var(--accent);
+      }
+      #progress::-webkit-progress-bar {
+        background: var(--soft);
+      }
+      #progress::-webkit-progress-value {
+        background: var(--accent);
+        border-radius: 4px;
+      }
+      .content {
+        margin-top: 30px;
+      }
+      .content-heading {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        gap: 12px;
+      }
+      .content-heading h2 {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      #index-note {
+        font-size: 11px;
+        color: var(--secondary);
+      }
+      .content-item {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 13px 0;
+      }
+      .content-item + .content-item {
+        border-top: 1px solid var(--line);
+      }
+      .content-item svg {
+        color: var(--secondary);
+      }
+      .content-item h3 {
+        flex: 1;
+        font-size: 13px;
+        font-weight: 400;
+      }
+      .content-item p {
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+      #video-moments {
+        margin-left: 8px;
+        font-size: 12px;
+        color: var(--secondary);
+      }
+      .attention {
+        border-top: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-top: 10px;
+        padding-top: 13px;
+        color: var(--secondary);
+      }
+      .attention > span {
+        flex: 1;
+        font-size: 12px;
+      }
+      .attention .icon {
+        width: 15px;
+        height: 15px;
+      }
+      .attention button {
+        font-size: 12px;
+        margin-right: -8px;
+      }
+      .message {
+        margin-top: 16px;
+        padding: 12px;
+        border-radius: 8px;
+        background: var(--soft);
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+      #error {
+        color: var(--color-text-danger, light-dark(#ba3633, #ef8784));
+      }
+      footer {
+        color: var(--secondary);
+        font-size: 11px;
+        margin-top: 22px;
+      }
+      dialog {
+        color: inherit;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--border-radius-xl, 16px);
+        padding: 0;
+        width: min(440px, calc(100vw - 32px));
+        max-height: calc(100vh - 40px);
+        overflow-y: auto;
+        box-shadow: 0 14px 55px #0002;
+      }
+      dialog::backdrop {
+        background: #0005;
+      }
+      .dialog-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px 20px 16px;
+      }
+      .dialog-head h2 {
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.2px;
+      }
+      .close {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        min-height: 30px;
+        padding: 6px;
+        color: var(--secondary);
+      }
+      .close .icon {
+        width: 16px;
+        height: 16px;
+      }
+      .dialog-body {
+        padding: 0 20px 20px;
+      }
+      .settings-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 51px;
+        padding: 10px 0;
+      }
+      .settings-row + .settings-row {
+        border-top: 1px solid var(--line);
+      }
+      .settings-row strong {
+        font-size: 13px;
+        font-weight: 400;
+      }
+      .settings-row p {
+        color: var(--secondary);
+        font-size: 12px;
+        margin-top: 3px;
+      }
+      .settings-row button {
+        font-size: 12px;
+      }
+      .settings-value {
+        font-size: 12px;
+        color: var(--secondary);
+        text-align: right;
+      }
+      .group-title {
+        margin: 22px 0 7px;
+        font-size: 12px;
+        color: var(--secondary);
+        font-weight: 500;
+      }
+      details {
+        margin-top: 16px;
+      }
+      summary {
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--secondary);
+        padding: 4px 0;
+      }
+      .diagnostics {
+        display: grid;
+        gap: 8px;
+        font-size: 11px;
+        color: var(--secondary);
+        padding-top: 12px;
+        overflow-wrap: anywhere;
+      }
+      .dialog-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 0 20px 20px;
+      }
+      #confirm-dialog {
+        width: min(390px, calc(100vw - 32px));
+      }
+      #confirm-dialog .dialog-body {
+        padding: 24px 24px 22px;
+      }
+      #confirm-title {
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 10px;
+      }
+      #confirm-body,
+      #coverage-intro {
+        color: var(--secondary);
+        font-size: 13px;
+      }
+      #issues {
+        list-style: none;
+        margin: 16px 0 0;
+        padding: 0;
+      }
+      #issues li {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 16px;
+        padding: 12px 0;
+        border-top: 1px solid var(--line);
+        font-size: 13px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+      #issues li span {
+        color: var(--secondary);
+        white-space: nowrap;
+        font-size: 12px;
+      }
+      #issues-note {
+        color: var(--secondary);
+        font-size: 11px;
+        margin-top: 10px;
+      }
+      .workflow {
+        display: flex;
+        gap: 16px;
+        padding: 16px 0 0;
+        margin: 0;
+        list-style: none;
+        color: var(--secondary);
+        font-size: 11px;
+      }
+      .workflow li[aria-current="step"] {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      .workflow li::before {
+        content: "○ ";
+      }
+      .workflow li.complete::before {
+        content: "✓ ";
+      }
+      #progress-note,
+      .hint {
+        font-size: 12px;
+        color: var(--secondary);
+        line-height: 1.5;
+      }
+      #progress-note {
+        margin-top: 8px;
+      }
+      .review-list {
+        margin: 18px 0;
+      }
+      .review-list > div {
+        padding: 12px 0;
+        border-top: 1px solid var(--line);
+      }
+      .review-list dt {
+        font-weight: 500;
+        margin-bottom: 4px;
+      }
+      .review-list dd {
+        margin: 0;
+        color: var(--secondary);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      #price-guide {
+        margin-top: 16px;
+      }
+      #price-guide .hint {
+        margin-top: 8px;
+      }
+      .issue-heading {
+        font-size: 12px;
+        font-weight: 600;
+        margin: 18px 0 2px;
+      }
+      .issue-heading:first-child {
+        margin-top: 12px;
+      }
+      .issue-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .link-button {
+        padding: 0;
+        min-height: 28px;
+        text-decoration: underline;
+        font-size: 12px;
+      }
+      @media (max-width: 420px) {
+        main {
+          padding: 34px 20px 28px;
+        }
+        h1 {
+          font-size: 18px;
+        }
+        .app-header {
+          margin-bottom: 26px;
+        }
+        .overview {
+          padding: 18px;
+        }
+        .stats {
+          gap: 12px;
+        }
+        .stat strong {
+          font-size: 27px;
+        }
+        .overview-bottom {
+          flex-wrap: wrap;
+        }
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        button {
+          transition: background-color 0.12s;
+        }
+        dialog[open] {
+          animation: appear 0.12s ease-out;
+        }
+        @keyframes appear {
+          from {
+            opacity: 0;
+            transform: translateY(3px);
+          }
+          to {
+            opacity: 1;
+            transform: none;
+          }
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg style="display: none" aria-hidden="true">
+      <defs>
+        <symbol id="i-x" viewBox="0 0 24 24">
+          <path
+            d="M18.4 2h3.4l-7.5 8.6L23 22h-6.8l-5.3-7-6.1 7H1.4l7.9-9L1 2h7l4.8 6.4L18.4 2Zm-1.2 18h1.9L7 4H5l12.2 16Z"
+          />
+        </symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24">
+          <path
+            d="m9 3-1 3-3 1-2 3 2 2-1 3 2 3 3-1 2 3h3l1-3 3-1 2-3-2-2 1-3-2-3-3 1-2-3z"
+          />
+          <circle cx="11.5" cy="11.5" r="3" />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="m8 12 3 3 5-6" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v5m0-9v.5" />
+        </symbol>
+        <symbol id="i-text" viewBox="0 0 24 24">
+          <path d="M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 16h6" />
+        </symbol>
+        <symbol id="i-image" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="16" rx="3" />
+          <circle cx="8" cy="9" r="1.5" />
+          <path d="m4 17 5-5 4 4 3-3 5 5" />
+        </symbol>
+        <symbol id="i-video" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="16" rx="4" />
+          <path d="m10 8 6 4-6 4z" />
+        </symbol>
+        <symbol id="i-audio" viewBox="0 0 24 24">
+          <path d="M4 10v4m4-8v12m4-15v18m4-15v12m4-8v4" />
+        </symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24">
+          <rect x="5" y="10" width="14" height="11" rx="3" />
+          <path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2" />
+        </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24">
+          <path d="m6 6 12 12M6 18 18 6" />
+        </symbol>
+      </defs>
+    </svg>
+    <main>
+      <header class="app-header">
+        <svg class="brand-mark" aria-hidden="true"><use href="#i-x" /></svg>
+        <div class="identity">
+          <h1 aria-label="X Bookmark Library">Bookmark Library</h1>
+          <p class="account">
+            <span id="dot" class="dot"></span
+            ><span id="account">Connecting…</span>
+          </p>
+        </div>
+        <button
+          id="settings"
+          aria-label="Settings"
+          title="Settings"
+          aria-haspopup="dialog"
+        >
+          <svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg>
+        </button>
+      </header>
+      <section class="overview" aria-label="Library status">
+        <div class="stats">
+          <div class="stat">
+            <strong id="saved">—</strong><span>Saved</span>
+          </div>
+          <div class="stat">
+            <strong id="searchable">—</strong><span>Searchable</span>
+          </div>
+          <div class="stat">
+            <strong id="remaining">—</strong><span>To process</span>
+          </div>
+        </div>
+        <div class="overview-bottom">
+          <div class="status" role="status" aria-live="polite">
+            <span id="status-title">Loading…</span>
+            <p id="detail" hidden></p>
+          </div>
+          <div class="actions">
+            <button id="main" class="primary" disabled>Loading…</button
+            ><button id="pause" class="secondary" hidden>Pause</button>
+          </div>
+        </div>
+        <progress
+          id="progress"
+          aria-label="Bookmark processing progress"
+          hidden
+        ></progress>
+        <ol id="workflow" class="workflow" aria-label="Import stages" hidden>
+          <li id="step-fetch">Fetch bookmarks</li>
+          <li id="step-process">Prepare sources</li>
+          <li id="step-ready">Ready in ChatGPT</li>
+        </ol>
+        <p id="progress-note" hidden></p>
+      </section>
+      <section
+        id="content"
+        class="content"
+        aria-labelledby="content-title"
+        hidden
+      >
+        <div class="content-heading">
+          <h2 id="content-title">Available to ChatGPT</h2>
+        </div>
+        <div class="content-item">
+          <svg class="icon" aria-hidden="true"><use href="#i-text" /></svg>
+          <h3>Posts &amp; articles</h3>
+          <p id="text-count">—</p>
+        </div>
+        <div class="content-item">
+          <svg class="icon" aria-hidden="true"><use href="#i-image" /></svg>
+          <h3>Images</h3>
+          <p id="image-count">—</p>
+        </div>
+        <div class="content-item">
+          <svg class="icon" aria-hidden="true"><use href="#i-video" /></svg>
+          <h3>Videos</h3>
+          <p><span id="video-count">—</span><span id="video-moments"></span></p>
+        </div>
+        <div class="content-item">
+          <svg class="icon" aria-hidden="true"><use href="#i-audio" /></svg>
+          <h3>Transcripts</h3>
+          <p id="transcript-count">—</p>
+        </div>
+      </section>
+      <aside id="attention" class="attention" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg
+        ><span id="attention-title"></span
+        ><button id="review" aria-haspopup="dialog">Details</button>
+      </aside>
+      <p id="error" class="message" role="alert" hidden></p>
+      <p id="notice" class="message" role="status" hidden></p>
+      <footer id="last-sync" hidden></footer>
+    </main>
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+      <div class="dialog-head">
+        <h2 id="settings-title">Settings</h2>
+        <button
+          class="close"
+          data-close="settings-dialog"
+          aria-label="Close settings"
+          autofocus
+        >
+          <svg class="icon" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <div class="group">
+          <div class="settings-row">
+            <div>
+              <strong>X account</strong>
+              <p id="settings-account"></p>
+            </div>
+            <button id="disconnect" class="danger" hidden>Disconnect…</button>
+          </div>
+          <div class="settings-row">
+            <div>
+              <strong>Automatic sync</strong>
+              <p>Manage the schedule in ChatGPT.</p>
+            </div>
+            <button id="schedule" class="text-button">Ask ChatGPT…</button>
+          </div>
+        </div>
+        <h3 class="group-title">Costs</h3>
+        <div class="group">
+          <div class="settings-row">
+            <strong>X API reads</strong
+            ><button id="billing" class="text-button">View billing ↗</button>
+          </div>
+          <div class="settings-row">
+            <strong>Local models</strong
+            ><span class="settings-value">No API fees</span>
+          </div>
+        </div>
+        <h3 class="group-title">Library</h3>
+        <div class="group">
+          <div class="settings-row">
+            <div>
+              <strong>AI summaries &amp; tags</strong>
+              <p id="enrichment-status"></p>
+            </div>
+            <button id="enrich" class="text-button">Ask ChatGPT…</button>
+          </div>
+          <div class="settings-row">
+            <strong>Storage</strong
+            ><span id="storage" class="settings-value"></span>
+          </div>
+          <div class="settings-row">
+            <div>
+              <strong>X folders</strong>
+              <p>
+                <span id="folders"></span> · <span id="folder-checked"></span>
+              </p>
+            </div>
+            <button id="check-folders" class="text-button">Check now…</button>
+          </div>
+          <div class="settings-row">
+            <strong>Last processed</strong
+            ><span id="last-processed" class="settings-value"></span>
+          </div>
+        </div>
+        <details>
+          <summary>Technical details</summary>
+          <div class="diagnostics">
+            <p id="index-note"></p>
+            <p id="usage"></p>
+            <p id="coverage"></p>
+            <p id="library-path"></p>
+            <p>Bookmark Library 0.4.0</p>
+          </div>
+        </details>
+      </div>
+      <div class="dialog-footer">
+        <button class="primary" data-close="settings-dialog">Done</button>
+      </div>
+    </dialog>
+    <dialog id="coverage-dialog" aria-labelledby="coverage-title">
+      <div class="dialog-head">
+        <h2 id="coverage-title">Source details</h2>
+        <button
+          class="close"
+          data-close="coverage-dialog"
+          aria-label="Close source details"
+          autofocus
+        >
+          <svg class="icon" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <p id="coverage-intro"></p>
+        <div id="issues"></div>
+        <p id="issues-note"></p>
+      </div>
+      <div class="dialog-footer">
+        <button data-close="coverage-dialog" class="secondary">Done</button
+        ><button id="retry" class="primary">Retry failed work…</button>
+      </div>
+    </dialog>
+    <dialog
+      id="import-dialog"
+      aria-labelledby="import-title"
+      aria-describedby="import-description"
+    >
+      <div class="dialog-head">
+        <h2 id="import-title">Import bookmarks</h2>
+        <button
+          class="close"
+          data-close="import-dialog"
+          aria-label="Close import review"
+          autofocus
+        >
+          <svg class="icon" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <p id="import-description" class="hint"></p>
+        <dl class="review-list">
+          <div>
+            <dt>From X · paid</dt>
+            <dd>Bookmarks, folders, threads and quoted posts.</dd>
+          </div>
+          <div>
+            <dt>On this Mac · no model API fees</dt>
+            <dd>
+              Download media and linked pages, transcribe audio, and index text,
+              images and video for ChatGPT.
+            </dd>
+          </div>
+        </dl>
+        <p class="hint">Pause at any time. Completed work is kept.</p>
+        <details id="price-guide">
+          <summary>How much will it cost?</summary>
+          <p class="hint">
+            Bookmark post reads: $1 per 1,000 for the app owner’s account, or $5
+            at standard rates. Extra context and other resources add to this.
+            These are examples, not a total estimate.
+          </p>
+          <button id="pricing" class="link-button">Current X prices ↗</button>
+        </details>
+      </div>
+      <div class="dialog-footer">
+        <button id="import-cancel" class="secondary">Cancel</button>
+        <button id="import-start" class="primary">Start import</button>
+      </div>
+    </dialog>
+    <dialog
+      id="confirm-dialog"
+      aria-labelledby="confirm-title"
+      aria-describedby="confirm-body"
+    >
+      <div>
+        <div class="dialog-body">
+          <h2 id="confirm-title"></h2>
+          <p id="confirm-body"></p>
+        </div>
+        <div class="dialog-footer">
+          <button id="confirm-cancel" class="secondary" autofocus>Cancel</button
+          ><button id="confirm-action" type="button" class="primary"></button>
+        </div>
+      </div>
+    </dialog>
+    <script type="module">
+      /*BUNDLE*/
+    </script>
+  </body>
+</html>

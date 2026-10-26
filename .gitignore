@@ -1,0 +1,33 @@
+# Local configuration and private library data
+.env
+.env.*
+!.env.example
+x-client.json
+config.json
+runtime.json
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+service.json
+/library/
+models/
+private/
+
+# Dependencies, build output and local caches
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+.build/
+.swiftpm/
+.npm-cache/
+.ruff_cache/
+plugin/bin/
+plugin/dist/
+release/
+outputs/
+*.log
+.DS_Store
