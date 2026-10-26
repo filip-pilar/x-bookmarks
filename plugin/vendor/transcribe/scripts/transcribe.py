@@ -17,7 +17,8 @@ import time
 from urllib.parse import urlsplit
 
 SKILL = Path(__file__).resolve().parents[1]
-CACHE = Path(os.environ.get('TRANSCRIBE_CACHE', '~/Library/Caches/codex-transcribe')).expanduser()
+LIBRARY = Path(os.environ.get('BOOKMARK_LIBRARY_HOME', '~/Library/Application Support/BookmarkLibrary')).expanduser()
+CACHE = Path(os.environ.get('TRANSCRIBE_CACHE', str(LIBRARY / 'cache/transcribe'))).expanduser()
 MODEL = 'FluidInference/parakeet-unified-en-0.6b-coreml'
 FORMAT_VERSION = 2
 
@@ -64,7 +65,8 @@ def command(args, log=None):
         with Path(log).open('a') as f:
             result = subprocess.run([str(a) for a in args], stdout=f, stderr=f)
         if result.returncode:
-            raise RuntimeError(f'{Path(str(args[0])).name} failed ({result.returncode}); see {log}')
+            detail = Path(log).read_text(errors='replace')[-3000:]
+            raise RuntimeError(f'{Path(str(args[0])).name} failed ({result.returncode}); see {log}\n{detail}')
         return ''
     result = subprocess.run([str(a) for a in args], text=True, capture_output=True)
     if result.returncode:
@@ -90,22 +92,9 @@ def runtime_key():
 
 
 def runtime():
-    packaged = SKILL.parents[1] / "bin" / "TranscribeAudio"
-    if packaged.is_file():
-        return packaged
-    key = runtime_key()
-    build = CACHE / 'builds' / key
-    binary = build / '.build' / 'release' / 'TranscribeAudio'
-    if binary.is_file():
-        return binary
-    if not shutil.which('swift'):
-        raise RuntimeError('Swift 6.2+ is needed for the first build. Install/select a compatible Xcode toolchain.')
-    build.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(SKILL / 'runtime', build / 'package', dirs_exist_ok=True)
-    say('Building the local CoreML helper (first run).')
-    command(['swift', 'build', '-c', 'release', '--package-path', build / 'package', '--scratch-path', build / '.build', '--product', 'TranscribeAudio'], build / 'build.log')
+    binary = LIBRARY / 'bin/TranscribeAudio'
     if not binary.is_file():
-        raise RuntimeError(f'Build did not produce the helper; see {build / "build.log"}')
+        raise RuntimeError('Local transcription helper missing. Run Bookmark Library setup to build it on this Mac.')
     return binary
 
 

@@ -29,7 +29,11 @@ struct SpeakerSegment: Codable {
         let data: Data
         if args[1] == "asr" {
             let manager = UnifiedAsrManager(configuration: configuration, encoderPrecision: .int8)
-            try await manager.loadModels(to: cache)
+            if ProcessInfo.processInfo.environment["BOOKMARK_LIBRARY_OFFLINE"] == "1" {
+                try await manager.loadModels(from: cache.appendingPathComponent("parakeet-unified-en-0.6b"))
+            } else {
+                try await manager.loadModels(to: cache)
+            }
             let samples = try AudioConverter().resampleAudioFile(input)
             let result = try await manager.transcribeWithTimings(samples)
             data = try encoder.encode(Recognition(text: result.text, tokenTimings: result.tokenTimings,

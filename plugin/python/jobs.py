@@ -8,11 +8,17 @@ from store import (
     enqueue,
     upsert_page,
     coverage_kind,
+    preflight_ready,
 )
 from xapi import get, FIELDS, RetryLater, XError
 
 WAKE = threading.Event()
 FOLDER_INTERVAL = 24 * 60 * 60
+
+
+def require_runtime():
+    if not preflight_ready():
+        raise RuntimeError("Run setup for this plugin version and pass the local processing preflight before resuming work.")
 
 
 def resume_sync(c, mode):
@@ -30,14 +36,11 @@ def resume_sync(c, mode):
             (active["id"],),
         )
         return active["id"]
-    if c.execute(
-        "SELECT 1 FROM jobs WHERE kind='process' AND state IN ('queued','running','waiting','failed') LIMIT 1"
-    ).fetchone():
-        raise RuntimeError("Finish or retry existing processing before starting a sync.")
     return None
 
 
 def sync_folders():
+    require_runtime()
     if not config().get("account"):
         raise RuntimeError("Connect X first.")
     with db() as c:
@@ -71,6 +74,7 @@ def sync_folders():
 
 
 def sync(mode="new"):
+    require_runtime()
     if mode not in ("new", "full"):
         raise ValueError("Sync mode must be new or full.")
     if not config().get("account"):
@@ -121,18 +125,26 @@ def scan_page(run, path, args, cursor=None, seen=(), folder=False, lookup_ids=No
     unavailable = None
     if lookup_ids:
         unavailable = unavailable_posts(page, lookup_ids)
-        if unavailable is None:
-            raise RuntimeError("Incomplete folder-post lookup; progress retained.")
         if "data" not in page and unavailable == set(lookup_ids):
             page = {**page, "data": []}
     data, nxt = page_data(page, cursor, seen, folder=folder)
     if lookup_ids:
         returned = {r["id"] for r in data}
-        if returned | unavailable != set(lookup_ids) or returned & unavailable:
+        if returned - set(lookup_ids) or (returned & (unavailable or set())):
             raise RuntimeError("Incomplete folder-post lookup; progress retained.")
-    if not page.get("errors"):
-        atomic(file, page)
+        if returned | (unavailable or set()) != set(lookup_ids) and not page.get("errors"):
+            raise RuntimeError("Incomplete folder-post lookup without per-record errors; progress retained.")
+    atomic(file, page)
     return page, data, nxt
+
+
+def page_warnings(p, page, phase):
+    if page.get("errors"):
+        p["partial_pages"] = p.get("partial_pages", 0) + 1
+        if phase != "bookmarks":
+            p["folder_gaps"] = True
+        # Full private responses remain in scans; status contains only counts and phases.
+        p.setdefault("api_warnings", {})[phase] = p.get("api_warnings", {}).get(phase, 0) + len(page["errors"])
 
 
 def advance(p, nxt):
@@ -142,8 +154,11 @@ def advance(p, nxt):
 
 
 def sync_step(job):
+    from maintenance import inventory_snapshot
+
     p = json.loads(job["payload"])
     owner, run = config()["account"]["id"], job["id"]
+    inventory_snapshot(HOME / "scans" / run / "before-reconciliation.json")
     phase, cursor = p.get("phase", "bookmarks"), p.get("cursor")
     args = {"max_results": p.get("page_size", 100) if phase == "bookmarks" else 100}
     if cursor:
@@ -156,10 +171,7 @@ def sync_step(job):
             cursor,
             p.get("cursors", []),
         )
-        if page.get("errors"):
-            raise RuntimeError(
-                "Incomplete bookmark response; progress retained. Retry to finish this page."
-            )
+        page_warnings(p, page, "bookmarks")
         with db() as c:
             known = bool(data) and all(
                 c.execute(
@@ -194,16 +206,17 @@ def sync_step(job):
             p.get("cursors", []),
             True,
         )
-        if page.get("errors"):
-            raise RuntimeError(
-                "Incomplete folder response; existing memberships retained."
-            )
+        page_warnings(p, page, "folders")
         with db() as c:
             for folder in data:
                 c.execute(
                     "INSERT OR REPLACE INTO scan_folders VALUES (?,?,?)",
                     (run, folder["id"], folder["name"]),
                 )
+                c.execute("INSERT OR REPLACE INTO folders VALUES (?,?,?)",
+                          (folder["id"], folder["name"], run))
+            c.execute("INSERT OR REPLACE INTO settings VALUES ('folder_inventory',?)",
+                      (json.dumps({"complete": False, "in_progress": True, "run": run}),))
             advance(p, nxt)
             if not nxt:
                 p.update(
@@ -230,10 +243,7 @@ def sync_step(job):
             cursor,
             p.get("cursors", []),
         )
-        if page.get("errors"):
-            raise RuntimeError(
-                "Incomplete folder membership; existing memberships retained."
-            )
+        page_warnings(p, page, "members")
         with db() as c:
             for item in data:
                 if p.get("mode") == "folders" and item["id"] not in p["existing_ids"]:
@@ -242,6 +252,8 @@ def sync_step(job):
                     "INSERT OR REPLACE INTO scan_members VALUES (?,?,?)",
                     (run, folder, item["id"]),
                 )
+                c.execute("INSERT OR REPLACE INTO members VALUES (?,?,?)",
+                          (folder, item["id"], run))
             advance(p, nxt)
             if not nxt:
                 p.update(folder_index=idx + 1, cursors=[])
@@ -262,6 +274,7 @@ def sync_step(job):
         page, data, _ = scan_page(
             run, "/tweets", {**FIELDS, "ids": ",".join(missing)}, lookup_ids=missing
         )
+        page_warnings(p, page, "hydrate")
         returned = {r["id"] for r in data}
         p["unresolved_ids"] = skipped + [i for i in missing if i not in returned]
         with db() as c:
@@ -280,21 +293,23 @@ def finish_sync(run, p):
     checked = p.get("check_folders", True)
     now = time.time()
     with db() as c:
+        folders_complete = checked and not p.get("folder_gaps") and not p.get("unresolved_ids")
         if checked:
-            c.execute("DELETE FROM members")
-            c.execute("DELETE FROM folders")
+            if folders_complete:
+                c.execute("DELETE FROM members")
+                c.execute("DELETE FROM folders")
             c.execute(
-                "INSERT INTO folders SELECT id,name,run FROM scan_folders WHERE run=?", (run,)
+                "INSERT OR REPLACE INTO folders SELECT id,name,run FROM scan_folders WHERE run=?", (run,)
             )
             c.execute(
-                "INSERT INTO members SELECT folder,item,run FROM scan_members WHERE run=?", (run,)
+                "INSERT OR REPLACE INTO members SELECT folder,item,run FROM scan_members WHERE run=?", (run,)
             )
-            if p.get("mode") == "folders":
+            if folders_complete and p.get("mode") == "folders":
                 c.executemany(
                     "UPDATE items SET folder_checked_at=? WHERE id=?",
                     [(now, i) for i in p["existing_ids"]],
                 )
-            else:
+            elif folders_complete:
                 c.execute(
                     "UPDATE items SET folder_checked_at=? WHERE active=1", (now,)
                 )
@@ -302,6 +317,7 @@ def finish_sync(run, p):
             p.get("mode", "full") == "full"
             and p.get("endpoint_exhausted")
             and not p.get("unavailable_records")
+            and not p.get("partial_pages")
         )
         if full:
             c.execute(
@@ -325,7 +341,9 @@ def finish_sync(run, p):
             "mode": p.get("mode", "full"),
             "endpoint_exhausted": p.get("endpoint_exhausted", False),
             "folders_checked": checked,
-            "folders_complete": checked,
+            "folders_complete": folders_complete,
+            "partial_pages": p.get("partial_pages", 0),
+            "api_warnings": p.get("api_warnings", {}),
             "unavailable_records": p.get("unavailable_records", 0),
             "unresolved_folder_ids": unresolved,
             "historical_coverage": "All exposed pages only; historical completeness is not independently verified.",
@@ -340,7 +358,9 @@ def finish_sync(run, p):
                     json.dumps(
                         {
                             "at": now,
-                            "complete": True,
+                            "complete": bool(folders_complete and not unresolved),
+                            "in_progress": False,
+                            "partial_pages": p.get("partial_pages", 0),
                             "scope": "existing" if p.get("mode") == "folders" else "all",
                             "folders": len(p.get("folder_ids", [])),
                             "unresolved_ids": unresolved,
@@ -362,6 +382,7 @@ def finish_sync(run, p):
 
 
 def process_saved(mode="rebuild", item=None):
+    require_runtime()
     if mode not in ("rebuild", "repair", "refresh"):
         raise ValueError("Unknown processing mode.")
     with db() as c:
@@ -386,6 +407,8 @@ def process_saved(mode="rebuild", item=None):
 
 
 def control(action):
+    if action in ("resume", "retry"):
+        require_runtime()
     if action in ("pause", "resume"):
         set_setting("paused", action == "pause")
         if action == "resume":
@@ -393,7 +416,8 @@ def control(action):
     elif action == "retry":
         with db() as c:
             c.execute(
-                "UPDATE jobs SET state='queued',attempts=0,next_at=0,error=NULL,payload=CASE WHEN kind='process' THEN json_set(payload,'$.retry',1) ELSE payload END WHERE state='failed'"
+                "UPDATE jobs AS failed SET state='queued',attempts=0,next_at=0,error=NULL,payload=CASE WHEN kind='process' THEN json_set(payload,'$.retry',1) ELSE payload END "
+                "WHERE state='failed' AND NOT EXISTS (SELECT 1 FROM jobs active WHERE active.kind=failed.kind AND active.item=failed.item AND active.state IN ('queued','running','waiting'))"
             )
             for row in c.execute(
                 "SELECT id,coverage FROM items WHERE active=1 AND state='partial'"
@@ -409,14 +433,17 @@ def control(action):
     return {"action": action}
 
 
-def loop():
+def loop(kind):
     while True:
         job = None
         if not setting("paused", False):
             with db() as c:
+                c.execute("BEGIN IMMEDIATE")
                 row = c.execute(
-                    "SELECT * FROM jobs WHERE state IN ('queued','waiting') AND next_at<=? ORDER BY CASE kind WHEN 'sync' THEN 0 ELSE 1 END,created LIMIT 1",
-                    (time.time(),),
+                    "SELECT * FROM jobs WHERE kind=? AND state IN ('queued','waiting') AND next_at<=? "
+                    "AND (?='sync' OR NOT EXISTS(SELECT 1 FROM jobs WHERE kind='sync' AND state IN ('queued','running','waiting'))) "
+                    "ORDER BY created LIMIT 1",
+                    (kind, time.time(), kind),
                 ).fetchone()
                 if row:
                     job = dict(row)
@@ -442,10 +469,15 @@ def loop():
                     generation=job["id"],
                 )
                 with db() as c:
+                    c.execute("BEGIN IMMEDIATE")
                     c.execute(
                         "UPDATE jobs SET state='complete',error=NULL,updated=? WHERE id=?",
                         (time.time(), job["id"]),
                     )
+                    current = c.execute("SELECT hash,processed_hash FROM items WHERE id=?", (job["item"],)).fetchone()
+                    if current and current["hash"] != current["processed_hash"]:
+                        enqueue(c, "process", job["item"], {"mode": "repair"})
+                        c.execute("UPDATE items SET state='pending' WHERE id=?", (job["item"],))
         except Exception as e:
             from processing import Paused
 
@@ -480,8 +512,8 @@ def loop():
                     "pause_reason",
                     "X access or credits need attention. Resolve the issue, then retry failed work.",
                 )
-            # Exception messages contain summaries, never OAuth tokens or raw provider responses.
-            error = str(e)[:500]
+            from diagnostics import safe_error
+            error = safe_error(e)
             with db() as c:
                 c.execute(
                     "UPDATE jobs SET state=?,attempts=?,next_at=?,error=?,updated=? WHERE id=?",

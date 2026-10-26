@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag to build (for example v0.5.1)
+        description: Existing version tag to build (for example v0.6.0)
         required: true
         type: string
 permissions:
@@ -40,7 +40,7 @@ jobs:
           python3 -m compileall -q plugin/python plugin/scripts plugin/vendor/transcribe/scripts scripts
       - run: npm ci
         working-directory: plugin
-      - name: Build plugin and native helpers
+      - name: Validate native source and package source-only helpers
         run: |
           npm run check
           npm run build

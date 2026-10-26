@@ -2,7 +2,7 @@ import concurrent.futures, fcntl, json, os, secrets, threading
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs
-from store import HOME, init, atomic, status, VERSION
+from store import HOME, init, atomic, status, VERSION, preflight_ready, set_setting
 import jobs, retrieval, xapi, enrichment
 
 PORT = int(os.environ.get("BOOKMARK_LIBRARY_PORT", "8765"))
@@ -145,11 +145,15 @@ if __name__ == "__main__":
     except BlockingIOError:
         raise SystemExit(0)
     init()
+    if not preflight_ready():
+        set_setting("paused", True)
+        set_setting("pause_reason", "Run setup to build local helpers and verify processing for this plugin version.")
     CAPABILITY = secrets.token_urlsafe(48)
     http = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     atomic(
         HOME / "service.json",
         {"pid": os.getpid(), "port": PORT, "token": CAPABILITY, "version": VERSION},
     )
-    threading.Thread(target=jobs.loop, daemon=True).start()
+    for kind in ("sync", "process"):
+        threading.Thread(target=jobs.loop, args=(kind,), daemon=True).start()
     http.serve_forever()

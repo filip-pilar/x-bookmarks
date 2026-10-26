@@ -4,7 +4,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const app = new App({ name: "Bookmark Library", version: "0.5.1" });
+const app = new App({ name: "Bookmark Library", version: "0.6.0" });
 const extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
 const dialog = (id: string) => $(id) as HTMLDialogElement;
@@ -43,13 +43,14 @@ type LibraryState = {
     unseen_retained?: number;
     endpoint_exhausted: boolean;
     unavailable_records?: number;
+    partial_pages?: number;
     folders_complete: boolean;
     folders_checked?: boolean;
   };
   last_processed?: number;
   storage_bytes: number;
   folders: number;
-  folder_inventory?: { complete: boolean; at: number };
+  folder_inventory?: { complete: boolean; at: number; in_progress?: boolean };
   enrichment?: { complete: number; pending: number; stale: number };
   library_path: string;
   usage: { requests: number; records: number };
@@ -242,7 +243,7 @@ function render(s: LibraryState) {
   $("pause").hidden = !running || s.paused;
   for (const id of ["pause", "retry", "disconnect", "schedule"])
     ($(id) as HTMLButtonElement).disabled = busy;
-  ($("retry") as HTMLButtonElement).disabled = busy || running;
+  ($("retry") as HTMLButtonElement).disabled = busy;
   $("content").hidden = !s.searchable;
   text("index-note", `${number(s.vectors)} search segments`);
   const content = s.content;
@@ -348,13 +349,16 @@ function render(s: LibraryState) {
     "folder-checked",
     s.folder_inventory?.complete
       ? `Checked ${date(s.folder_inventory.at)}`
-      : "Not checked yet",
+      : s.folder_inventory?.in_progress
+        ? "Sync in progress"
+        : "Not checked yet",
   );
   ($("check-folders") as HTMLButtonElement).disabled =
     busy ||
     !s.connected ||
     s.job_counts.some(
       (j) =>
+        j.kind === "sync" &&
         ["queued", "running", "waiting", "failed"].includes(j.state) &&
         j.count > 0,
     );
@@ -379,13 +383,17 @@ function render(s: LibraryState) {
     "coverage",
     s.last_inventory?.endpoint_exhausted
       ? "Reached the end of the bookmark pages X returned. " +
+          (s.last_inventory.partial_pages
+            ? `${s.last_inventory.partial_pages} pages had partial errors; coverage has gaps. `
+            : "") +
           (s.last_inventory.unavailable_records
             ? "Some records were unavailable. "
             : "") +
-          ((s.last_inventory.folders_checked ??
-          s.last_inventory.folders_complete)
+          (s.last_inventory.folders_complete
             ? "Folders checked."
-            : "Saved folder memberships reused.")
+            : s.last_inventory.folders_checked
+              ? "Folder sync incomplete; saved memberships retained."
+              : "Saved folder memberships reused.")
       : s.last_inventory?.mode === "new"
         ? `New bookmarks checked. ${s.last_inventory.folders_checked ? "Folders checked." : "Saved folder memberships reused."}`
         : "Full-library coverage has not been checked.",

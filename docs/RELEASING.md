@@ -1,35 +1,15 @@
 # Releasing
 
-The public source is `filip-pilar/x-bookmarks`. Users install versioned built ZIPs; they do not build Swift or npm dependencies themselves.
+Users install a versioned ZIP with prebuilt JavaScript and **native source only**. Their setup builds the helpers and downloads Gemma/Parakeet locally. Do not distribute maintainer-built native executables or model weights.
 
-## Prepare a version
+1. Review changes and keep `docs/KNOWN_ISSUES.md` current. Run `python3 scripts/bump-version.py MAJOR.MINOR.PATCH` with the next version.
+2. Run the README's TypeScript/build, Python syntax and archive checks. Native build validation requires Apple silicon and Swift 6.2+. Local runtime verification must use an isolated library and generated media; do not run imports as a release check.
+3. Commit and push the reviewed change. Tag the exact commit as `vMAJOR.MINOR.PATCH`, then push the new tag. Never move published tags or overwrite published assets.
 
-1. Make and review the change. Update `docs/KNOWN_ISSUES.md` when an issue has actually been resolved and verified.
-2. Run `python3 scripts/bump-version.py 0.5.2` with the intended new version. It keeps both plugin manifests, npm metadata and the MCP/UI version strings aligned.
-3. Run the build/check commands in the root README. No import, OAuth or model inference is part of these checks. Review the exact diff and commit it with a Conventional Commit message.
-4. Push the commit, then create and push its version tag:
+The macOS release workflow checks tag/version consistency, compiles native source for validation, builds JavaScript, and packages only the native source. Archive validation rejects `bin/`, models, private configuration, caches and library files. It creates a draft prerelease with `bookmark-library-release.zip`, `SHA256SUMS`, `SETUP_PROMPT.md` and `UPDATE_PROMPT.md`.
 
-```sh
-git push origin main
-git tag v0.5.2
-git push origin v0.5.2
-```
+Inspect workflow results, assets and release notes before publishing the draft. Keep preview status until fresh-recipient installation and the remaining runtime boundaries have been verified. The copy-paste prompts require v0.6.0 or later; earlier releases do not implement this setup contract.
 
-The release workflow checks that the tag matches the plugin version, builds the native arm64 helpers on macOS with Swift 6.2+, packages the plugin and checks the archive. It creates a **draft prerelease** containing:
+CI proves build/package consistency. Generated-media preflight proves the tested local processing paths on that device. Neither proves recipient OAuth, arbitrary real media or X historical completeness. State these boundaries in release notes. GitHub hosting does not provide signing/notarization, and this source-only distribution does not require them from the maintainer.
 
-- `bookmark-library-release.zip`
-- `SHA256SUMS`
-- `SETUP_PROMPT.md`
-- `UPDATE_PROMPT.md`
-
-The initial public baseline is v0.5.1. Its release notes must clearly identify the unresolved import/media/helper-trust issues. There are no Apple Developer signing credentials configured in this workflow; GitHub hosting does not supply notarization.
-
-## Publish
-
-Check the workflow result, generated release notes and assets in GitHub Releases. Keep Preview/prerelease status until the known runtime issues and recipient installation have been verified. Publish the draft when it is ready for users; use a normal release only after that validation. Do not overwrite an already published version or reuse its tag. Corrections get a new version.
-
-GitHub sends release notifications according to each user's Watch settings. Users ask Codex/ChatGPT to follow `docs/UPDATE_PROMPT.md` to apply the update. Do not distribute personal Client IDs, config files, models or bookmark data with public releases.
-
-## Verification boundaries
-
-CI proves source/build/package consistency. It does not prove that Gatekeeper accepts the executable, that a fresh Mac can download models, that OAuth succeeds, or that X exposes a full historical inventory. Verify those separately before claiming a supported release.
+Publishing makes an update available, without modifying installed copies. Users follow `docs/UPDATE_PROMPT.md` to pause/stop the service, preserve their library/account, build locally and verify processing before using the new version. Do not retry paid work as part of an update.

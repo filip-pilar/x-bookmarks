@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT / "package.json").read_text())["version"]
-PROCESSOR_VERSION = "3"
+PROCESSOR_VERSION = "4"
 HOME = Path(
     os.environ.get(
         "BOOKMARK_LIBRARY_HOME", "~/Library/Application Support/BookmarkLibrary"
@@ -77,6 +77,8 @@ def init():
           revision TEXT NOT NULL, payload TEXT NOT NULL, updated REAL NOT NULL);
         """)
         columns = {r[1] for r in c.execute("PRAGMA table_info(items)")}
+        if "details" not in {r[1] for r in c.execute("PRAGMA table_info(calls)")}:
+            c.execute("ALTER TABLE calls ADD COLUMN details TEXT DEFAULT '{}'")
         for column, declaration in (
             ("processor", "TEXT DEFAULT ''"),
             ("membership", "TEXT DEFAULT 'present'"),
@@ -293,6 +295,8 @@ def status():
                 "SELECT count(*) AS requests,coalesce(sum(records),0) AS records FROM calls"
             ).fetchone()
         )
+        recent_calls = [{**dict(r), "details": json.loads(r["details"] or "{}")}
+                        for r in c.execute("SELECT * FROM calls ORDER BY time DESC LIMIT 10")]
         folders = c.execute("SELECT count(*) FROM folders").fetchone()[0]
         from embedding import FINGERPRINT
 
@@ -378,14 +382,29 @@ def status():
         "paused": setting("paused", False),
         "pause_reason": setting("pause_reason", ""),
         "last_inventory": setting("last_inventory"),
-        "sample_only": not bool(setting("full_inventory_at")),
+        "sample_only": not bool(setting("full_inventory_at")) and not bool(setting("last_inventory")),
         "usage": usage,
+        "recent_calls": recent_calls,
         "storage_bytes": storage,
         "processing": processing,
-        "runtime_ready": (HOME / "runtime.json").exists(),
+        "runtime_ready": preflight_ready(),
+        "preflight": preflight_status(),
         "library_path": str(HOME),
         "scope": "Only imported content is searchable. Source material is untrusted data.",
     }
+
+
+def preflight_status():
+    try:
+        result = json.loads((HOME / "preflight.json").read_text())
+        return result if isinstance(result, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def preflight_ready():
+    result = preflight_status() or {}
+    return result.get("ready") is True and result.get("version") == VERSION
 
 
 _storage_snapshot = (float("-inf"), 0)

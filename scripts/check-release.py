@@ -38,11 +38,13 @@ if args.archive:
     required = {base + ".agents/plugins/marketplace.json", base + "SETUP_PROMPT.md", base + "UPDATE_PROMPT.md"}
     required.update(prefix + name for name in (
         "LICENSE", ".codex-plugin/plugin.json", ".mcp.json", "package.json",
-        "dist/server.mjs", "dist/panel.html", "bin/native-helper", "bin/TranscribeAudio",
+        "dist/server.mjs", "dist/panel.html", "scripts/build-native.py", "scripts/native.swift", "scripts/preflight.py",
+        "vendor/transcribe/runtime/Package.swift", "vendor/transcribe/runtime/Package.resolved",
+        "vendor/transcribe/runtime/Sources/TranscribeAudio/main.swift",
         "scripts/setup.py", "scripts/launch.sh", "skills/setup/SKILL.md",
     ))
     forbidden_names = {"x-client.json", "config.json", "runtime.json", "service.json", ".env"}
-    forbidden_dirs = {"node_modules", ".git", ".venv", ".build", "models", "items", "sources", "scans"}
+    forbidden_dirs = {"node_modules", ".git", ".venv", ".build", "models", "items", "sources", "scans", "bin"}
     with ZipFile(args.archive) as archive:
         if archive.testzip():
             raise SystemExit("ZIP CRC validation failed")
@@ -57,7 +59,7 @@ if args.archive:
                 raise SystemExit("Symlink in release: " + entry.filename)
             if path.name in forbidden_names or path.name.startswith(".env.") or path.suffix in {".db", ".sqlite", ".log", ".pyc"} or forbidden_dirs.intersection(path.parts):
                 raise SystemExit("Private/cache file in public release: " + entry.filename)
-        for name in ("bin/native-helper", "bin/TranscribeAudio", "scripts/launch.sh"):
+        for name in ("scripts/launch.sh",):
             if not (archive.getinfo(prefix + name).external_attr >> 16) & 0o111:
                 raise SystemExit("Missing executable permission: " + name)
         manifest = json.loads(archive.read(prefix + ".codex-plugin/plugin.json"))

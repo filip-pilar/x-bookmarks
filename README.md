@@ -1,52 +1,55 @@
 # X Bookmark Library
 
-Import your own X bookmarks and search their text, images, videos and transcripts in the Codex/ChatGPT desktop app. Source processing and embeddings run on your Apple silicon Mac; selected evidence and optional AI summaries use your assistant conversation.
+Search your X bookmarks, images, videos and transcripts from a local Codex/ChatGPT desktop chat. Processing and embeddings run on your Apple silicon Mac; selected evidence and optional summaries can enter your assistant conversation.
 
-**Preview:** the current baseline has known import, media and macOS helper-trust issues. Read [known issues](docs/KNOWN_ISSUES.md) before importing. A completed setup does not verify full media processing or historical coverage.
+**Preview:** generated-media processing and controlled import recovery have passed locally. Fresh-recipient installation and X historical coverage remain separate verification steps. See [remaining limitations](docs/KNOWN_ISSUES.md).
 
-## Install
+## Copy and paste to install
 
-Use an Apple silicon Mac with macOS 14+, Homebrew, and a local Codex/ChatGPT desktop chat with computer access and Browser. Each user brings their own X developer app, API credits and X account. No separate OpenAI API key is required.
+Open a **local** desktop chat with Browser and file/command access. Select **GPT-6 Astra · xhigh** if available, then paste:
 
-Give your assistant this request, then let it follow the [setup prompt](docs/SETUP_PROMPT.md):
+```text
+Install Bookmark Library from https://github.com/filip-pilar/x-bookmarks. Read and follow docs/SETUP_PROMPT.md using @Browser and local computer tools. I will use my own X developer app, billing and X account.
 
-> Install Bookmark Library from https://github.com/filip-pilar/x-bookmarks. Read docs/SETUP_PROMPT.md and use Browser to handle setup. Use my own X app and billing. Finish connected and paused, without importing bookmarks.
+Handle downloads, dependencies, local compilation, app configuration and recoverable problems yourself. Ask only for materially missing information or personal sign-in/2FA, legal acceptance, exact payment approval, administrator prompts or final X consent. Never ask for secrets in chat.
 
-The assistant downloads a built ZIP from [Releases](https://github.com/filip-pilar/x-bookmarks/releases), verifies its checksum, installs dependencies and helps with X authorization. You handle required sign-ins, financial decisions and macOS approvals. Using GPT-6 Astra with xhigh reasoning is the suggested handoff configuration; model availability depends on your account.
+Use the newest published release at version 0.6.0 or later and verify its ZIP checksum. Compile the native helpers on my Mac and download Gemma and Parakeet locally. No Apple Developer membership or signing from the repository owner is needed. Require the generated-media OCR, text/image/audio/video/joint embedding and real speech preflight to pass before calling setup ready.
 
-Download **bookmark-library-release.zip**, not GitHub's source-code ZIP. The source checkout omits built helpers and JavaScript bundles. Preview releases are labeled; the assistant reports those limitations before setup.
+Finish with the plugin discovered, my X account connected and the library paused. Do not import bookmarks, check folders, fetch bookmark sources, process saved content or create schedules. Preserve any existing library and use docs/UPDATE_PROMPT.md if this is an update. Report what you verified and any blocker.
+```
 
-## Update an existing installation
+The [full setup prompt](docs/SETUP_PROMPT.md) is also included with each [release](https://github.com/filip-pilar/x-bookmarks/releases). Your assistant handles installation; you complete required personal approvals. Each user needs their own X app and credits. No separate OpenAI API key is required.
 
-> Update my existing Bookmark Library from https://github.com/filip-pilar/x-bookmarks. Follow docs/UPDATE_PROMPT.md. Keep my X app, authorization, bookmarks and queued work. Leave it paused and do not sync or import.
+Native helpers are **source only** in the ZIP; JavaScript is prebuilt. Setup needs Apple silicon, macOS 14+, Homebrew and a compatible Swift 6.2+ toolchain/SDK. It builds OCR/Keychain and Parakeet helpers locally and downloads the models on the recipient's device. Older macOS versions may need a compatible toolchain from Swift.org. Model terms are separate from the MIT code license.
 
-Updates use a versioned release ZIP and the existing local library. They do not require creating another X app or paying again. New X API reads still use your own app's credits. The prompt pauses the queue and stops the existing Bookmark Library service before replacing its cached plugin code.
+## Copy and paste to update
 
-Updates are applied when requested; publishing a release does not silently update anyone's Mac. On GitHub, **Watch → Custom → Releases** lets you receive new-release notifications. [GitHub notification controls](https://docs.github.com/en/account-and-profile/managing-subscriptions-and-notifications-on-github/setting-up-notifications/configuring-notifications)
+```text
+Update my existing Bookmark Library from https://github.com/filip-pilar/x-bookmarks. Read and follow docs/UPDATE_PROMPT.md. Handle routine work yourself. Preserve my app/account, credentials, bookmarks and queued work. Pause and stop the verified service before changes, build helpers locally, and pass the new version's generated-media processing preflight. Finish paused. Do not import/sync, check folders, fetch bookmark sources, retry/process saved content, create schedules or buy credits.
+```
 
-## Data and credentials
+Publishing a release makes updates available; it does not silently change anyone's Mac. GitHub **Watch → Custom → Releases** provides release notifications. Updates retain the existing X app, billing and account connection.
 
-Bookmarks, downloaded media, vectors, configuration and models stay outside Git in `~/Library/Application Support/BookmarkLibrary`; OAuth credentials are in macOS Keychain. This public repository and its default release contain no X Client ID or shared billing configuration. Each user's library remains independent.
+## Data and diagnosis
 
-Read the [plugin guide](plugin/README.md) for processing behavior, X callback/scopes and local backup instructions. For failures, use the [bug report template](https://github.com/filip-pilar/x-bookmarks/issues/new?template=bug_report.yml) and share only redacted diagnostic summaries.
+The private library, models, helpers and caches live under `~/Library/Application Support/BookmarkLibrary`; OAuth credentials live in macOS Keychain. Public releases contain no Client ID, credentials, library data, model weights or native executables.
 
-## Develop and release
+See the [plugin guide](plugin/README.md) for processing and backups. For problems, use the [bug report](https://github.com/filip-pilar/x-bookmarks/issues/new?template=bug_report.yml) with a redacted summary. Preserve saved queue/page diagnostics before retrying paid reads. Reaching the last API page does not independently prove every historical bookmark is available.
 
-Build requirements: Apple silicon, macOS 14+, Node.js 22+, Python 3 and Swift 6.2+.
+## Development
 
 ```sh
 cd plugin
 npm ci
 npm run check
 npm run build
-npm run build:native
+npm run build:native  # Optional local build verification; executables are not packaged
 npm run package
 cd ..
+python3 -m compileall -q plugin/python plugin/scripts plugin/vendor/transcribe/scripts scripts
 python3 scripts/check-release.py --archive release/bookmark-library-release.zip
 ```
 
-CI checks TypeScript, bundles the UI/server, checks Python syntax and checks version consistency. A version tag starts an Apple silicon build and prepares a draft GitHub release with the installable ZIP, checksums and setup/update prompts. See [releasing](docs/RELEASING.md) for the maintainer workflow.
+CI checks source/build consistency, compiles native source on Apple silicon, and validates the ZIP excludes native executables and private data. Tags prepare draft releases with the ZIP, checksums and copy-paste prompts. See [releasing](docs/RELEASING.md). No unit tests are used.
 
-The source catalog is `.agents/plugins/marketplace.json`; the built ZIP contains its own installable marketplace. Generated builds, private files and local data are ignored by Git. No unit tests are used.
-
-MIT licensed. Model and dependency terms are separate; see [third-party notices](plugin/THIRD_PARTY_NOTICES.md).
+[MIT license](LICENSE). [Third-party notices](plugin/THIRD_PARTY_NOTICES.md).

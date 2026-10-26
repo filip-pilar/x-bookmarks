@@ -101,7 +101,7 @@ def get(path, params=None):
                 code = r.status
             with db() as c:
                 c.execute(
-                    "INSERT INTO calls VALUES (?,?,?,?)",
+                    "INSERT INTO calls(time,endpoint,status,records,details) VALUES (?,?,?,?,?)",
                     (
                         time.time(),
                         path,
@@ -109,13 +109,24 @@ def get(path, params=None):
                         1
                         if isinstance(result.get("data"), dict)
                         else len(result.get("data") or []),
+                        json.dumps({"next_page": bool(result.get("meta", {}).get("next_token")),
+                                    "partial_errors": len(result.get("errors", [])),
+                                    "rate_remaining": r.headers.get("x-rate-limit-remaining"),
+                                    "rate_reset": r.headers.get("x-rate-limit-reset")}),
                     ),
                 )
             return result
         except HTTPError as e:
+            from diagnostics import safe_error
+            try:
+                body = json.loads(e.read(16384))
+                detail = safe_error("; ".join(str(body[k]) for k in ("title", "detail", "reason") if body.get(k))) if isinstance(body, dict) else ""
+            except (ValueError, OSError, TypeError):
+                detail = ""
             with db() as c:
                 c.execute(
-                    "INSERT INTO calls VALUES (?,?,?,0)", (time.time(), path, e.code)
+                    "INSERT INTO calls(time,endpoint,status,records,details) VALUES (?,?,?,0,?)",
+                    (time.time(), path, e.code, json.dumps({"error": detail})),
                 )
             if e.code == 401 and attempt == 0:
                 continue
@@ -134,7 +145,7 @@ def get(path, params=None):
                 raise RetryLater(
                     f"X returned HTTP {e.code}; retry scheduled.", time.time() + 60
                 ) from None
-            raise XError(e.code, f"X returned HTTP {e.code} for {path}.") from None
+            raise XError(e.code, f"X returned HTTP {e.code} for {path}. {detail}".strip()) from None
     raise RuntimeError("X authorization failed; reconnect.")
 
 

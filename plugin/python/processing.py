@@ -13,9 +13,9 @@ from store import (
 )
 from content import media_file, external_document, transcribe, probe, ocr, audio_file
 from embedding import encode, FINGERPRINT
-from xapi import get, FIELDS
-from sources import policy, reserve_space, DiskSpaceError, context_request
-from context import capture, links
+from xapi import get, FIELDS, XError, RetryLater
+from sources import policy, reserve_space, DiskSpaceError, context_request, cached_json
+from context import capture, links, references
 
 
 def segments(text, size=1800, overlap=200):
@@ -149,9 +149,22 @@ def _process(item, retry=False):
         f"# {row['title']}\n\nSource: {row['url']}\nAuthor: @{row['author']}\n\n{text}"
     )
     add_text(text)
-    context, context_media, context_warnings = capture(
-        post, directory, get, progress, retry, row["hash"]
-    )
+    try:
+        context, context_media, context_warnings = capture(
+            post, directory, get, progress, retry, row["hash"]
+        )
+    except (Paused, DiskSpaceError, RetryLater):
+        raise
+    except Exception as e:
+        if isinstance(e, XError) and e.status in (401, 402):
+            raise
+        from diagnostics import safe_error
+        saved = cached_json(directory / "context.json") or {}
+        identity = fingerprint([post.get("conversation_id"), post.get("author_id"), references(post)])
+        if saved.get("identity") != identity:
+            saved = {}
+        context, context_media = saved.get("posts", []), saved.get("media", [])
+        context_warnings = [*saved.get("warnings", []), "Thread context incomplete: " + safe_error(e)]
     warnings.extend(context_warnings)
     for p in sorted(context, key=lambda p: int(p["id"])):
         body = p.get("article", {}).get("plain_text") or p.get("note_tweet", {}).get(
@@ -177,6 +190,25 @@ def _process(item, retry=False):
         m["media_key"]: m
         for m in raw.get("includes", {}).get("media", []) + context_media
     }
+    if keys - all_media.keys():
+        # A valid post can arrive without its requested media expansion. Repair
+        # that source response separately instead of silently dropping the media.
+        origins = [p["id"] for p in [post, *context] if
+                   set(p.get("attachments", {}).get("media_keys", [])) & (keys - all_media.keys())
+                   or p.get("article")]
+        try:
+            for offset in range(0, len(origins), 100):
+                payload = context_request("/tweets", {**FIELDS, "ids": ",".join(origins[offset:offset + 100])}, get)
+                all_media.update({m["media_key"]: m for m in payload.get("includes", {}).get("media", [])})
+        except (Paused, DiskSpaceError, RetryLater):
+            raise
+        except Exception as e:
+            if isinstance(e, XError) and e.status in (401, 402):
+                raise
+            from diagnostics import safe_error
+            warnings.append("Media lookup incomplete: " + safe_error(e))
+        if keys - all_media.keys():
+            warnings.append("Media expansions missing: " + ", ".join(sorted(keys - all_media.keys())) + ". Use Repair to retry X.")
     for media in all_media.values():
         if media["media_key"] not in keys:
             continue
@@ -377,7 +409,12 @@ def _process(item, retry=False):
                 .sha256(Path(im["path"]).read_bytes())
                 .hexdigest(),
             }
-            add("image", im.get("alt", ""), meta, text="<|image|>", images=img)
+            try:
+                add("image", im.get("alt", ""), meta, text="<|image|>", images=img)
+            except (Paused, DiskSpaceError):
+                raise
+            except Exception as e:
+                warnings.append("Image embedding: " + str(e))
             progress("reading_images")
             screen = ocr(im["path"])
             if screen.strip():

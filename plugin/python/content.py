@@ -1,4 +1,4 @@
-import hashlib, ipaddress, json, os, socket, subprocess, sys, time, shutil, tempfile
+import hashlib, io, ipaddress, json, os, socket, subprocess, sys, time, shutil, tempfile
 from pathlib import Path
 from urllib.parse import urlsplit, urljoin
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -39,12 +39,23 @@ def public_url(url):
     return url
 
 
-def fetch(url, dest, limit=24 * 1024 * 1024):
+def valid_image(data):
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.verify()
+        return True
+    except Exception:
+        return False
+
+
+def fetch(url, dest, limit=24 * 1024 * 1024, *, image=False):
     dest = Path(dest)
     stamp = dest.with_suffix(dest.suffix + ".source.json")
     record = cached_json(stamp)
     mode, generation = POLICY.get()
-    if dest.exists() and dest.stat().st_size and reusable(record):
+    if dest.exists() and dest.stat().st_size and reusable(record) and (not image or valid_image(dest.read_bytes())):
         if not record or (
             record.get("url") == url and record.get("sha256") == checksum(dest)
         ):
@@ -58,6 +69,7 @@ def fetch(url, dest, limit=24 * 1024 * 1024):
         and shared_record
         and reusable(shared_record)
         and checksum(shared) == shared_record.get("sha256")
+        and (not image or valid_image(shared.read_bytes()))
     ):
         atomic(dest, shared.read_bytes())
         atomic(stamp, shared_record)
@@ -94,6 +106,8 @@ def fetch(url, dest, limit=24 * 1024 * 1024):
             raise RuntimeError(
                 "Source exceeds the 24 MB document/image extraction limit."
             )
+        if image and not valid_image(data):
+            raise RuntimeError("Source did not return a decodable image; invalid bytes were not cached.")
         record = {
             "url": original,
             "final_url": url,
@@ -109,13 +123,14 @@ def fetch(url, dest, limit=24 * 1024 * 1024):
     raise RuntimeError("Too many source redirects.")
 
 
-def command(args, timeout=1800):
+def command(args, timeout=1800, env=None):
     p = subprocess.run(
-        [str(a) for a in args], capture_output=True, text=True, timeout=timeout
+        [str(a) for a in args], capture_output=True, text=True, timeout=timeout, env=env
     )
     if p.returncode:
+        from diagnostics import safe_error
         raise RuntimeError(
-            f"{Path(str(args[0])).name} failed (exit {p.returncode}); source may be unavailable or unsupported."
+            f"{Path(str(args[0])).name} failed (exit {p.returncode}): {safe_error(p.stderr or p.stdout)}"
         )
     return p.stdout
 
@@ -129,7 +144,8 @@ def ocr(path):
         timeout=60,
     )
     if result.returncode:
-        raise RuntimeError("macOS Vision could not read this image.")
+        from diagnostics import safe_error
+        raise RuntimeError("macOS Vision helper failed: " + safe_error(result.stderr))
     return "\n".join(json.loads(result.stdout))
 
 
@@ -197,7 +213,9 @@ def external_document(url, directory):
                 "Readability extraction may omit page layout or unsupported content."
             )
     for tag in main.find_all(["img", "graphic"]):
-        src = tag.get("src") or tag.get("data-src")
+        src = tag.get("data-src") or tag.get("data-original") or tag.get("src")
+        if (not src or src.startswith("data:")) and tag.get("srcset"):
+            src = tag["srcset"].split(",")[-1].strip().split()[0]
         alt = tag.get("alt", "")
         if not src:
             continue
@@ -207,7 +225,7 @@ def external_document(url, directory):
         img_url = urljoin(base_url, src)
         p = dest / (hashlib.sha256(img_url.encode()).hexdigest()[:20] + ".image")
         try:
-            fetch(img_url, p)
+            fetch(img_url, p, image=True)
             images.append({"path": str(p), "url": img_url, "alt": alt})
             tag.name = "img"
             tag.attrs = {"src": str(p), "alt": alt}
@@ -243,7 +261,7 @@ def media_file(media, directory):
     path = directory / "assets" / key
     path.parent.mkdir(parents=True, exist_ok=True)
     if media["type"] == "photo":
-        return fetch(media["url"], path.with_suffix(".image"))
+        return fetch(media["url"], path.with_suffix(".image"), image=True)
     path = path.with_suffix(".mp4")
     stamp = path.with_suffix(".source.json")
     record = cached_json(stamp)
@@ -337,8 +355,11 @@ def media_file(media, directory):
                     )
                 time.sleep(0.25)
             if child.returncode:
+                from diagnostics import safe_error
+                output.seek(max(0, output.tell() - 4000))
                 raise RuntimeError(
-                    "Video download failed; partial download retained for resume."
+                    "Video download failed; partial download retained for resume. "
+                    + safe_error(output.read().decode(errors="replace"))
                 )
         finally:
             if child.poll() is None:
@@ -426,7 +447,7 @@ def audio_file(path, content_hash, duration):
     return wav
 
 
-def transcribe(path, directory):
+def transcribe(path, directory, *, rerun=False):
     runner = ROOT / "vendor/transcribe/scripts/transcribe.py"
     result = json.loads(
         command(
@@ -436,7 +457,8 @@ def transcribe(path, directory):
                 path,
                 "--destination",
                 directory / "transcriptions",
-            ]
+            ] + (["--rerun"] if rerun else []),
+            env=dict(os.environ, BOOKMARK_LIBRARY_OFFLINE="1" if config().get("offline") else "0"),
         )
     )
     raw = json.loads((Path(result["directory"]) / "recognition.json").read_text())
