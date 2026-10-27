@@ -76,6 +76,7 @@ def put_chunk(c, item, source, revision, kind, text, meta=None, vector=None, suf
     c.execute("DELETE FROM fts WHERE id=?", (key,))
     if text:
         c.execute("INSERT INTO fts VALUES (?,?,?)", (key, item, text))
+    __import__("scope").own(c, key, meta.get("owner_post") or meta.get("linked_from") or (source if kind in ("text", "context") else None))
     return key
 
 
@@ -108,9 +109,11 @@ def media_keys(post):
     return set(post.get("attachments", {}).get("media_keys", [])) | set(article.get("media_entities", [])) | ({article["cover_media"]} if article.get("cover_media") else set())
 
 
-def capture_post(c, item, post, media, run, mode):
+def capture_post(c, item, post, media, run, mode, users=()):
     from context import links
     from urllib.parse import urlsplit
+    media = [m for m in media if m.get("media_key") in media_keys(post)]
+    c.execute("INSERT OR REPLACE INTO post_presentations VALUES (?,?)", (post["id"], json.dumps({"post": post, "includes": {"media": media, "users": list(users)}})))
     publish_post(c, item, post)
     snapshot_metrics(c, post, media)
     revision = content_fingerprint(post, media)
@@ -124,7 +127,7 @@ def capture_post(c, item, post, media, run, mode):
         asset = fingerprint([post["id"], key])
         c.execute("INSERT OR IGNORE INTO assets VALUES (?,?,'','pending',0)", (asset, json.dumps(descriptor)))
         if descriptor.get("alt_text"):
-            publish_text(c, item, asset, fingerprint(descriptor["alt_text"]), "alt-text", descriptor["alt_text"], {"url": "https://x.com/i/status/" + post["id"]})
+            publish_text(c, item, asset, fingerprint(descriptor["alt_text"]), "alt-text", descriptor["alt_text"], {"url": "https://x.com/i/status/" + post["id"], "owner_post": post["id"]})
             queue(c, item, asset, "text", fingerprint(descriptor["alt_text"]), {}, run)
         queue(c, item, asset, "download", fingerprint([content_fingerprint({}, [descriptor]), run if mode == "refresh" else ""]), {"media": descriptor, "post": post["id"], "mode": mode}, run)
     for url in links(post):
@@ -263,7 +266,7 @@ def execute(stage):
         if kind == "media_lookup" and media_keys(result["data"]) - {m["media_key"] for m in result.get("includes", {}).get("media", [])}:
             raise RuntimeError("media_expansion_missing")
         with db() as c:
-            capture_post(c, item, result["data"], result.get("includes", {}).get("media", []), run, p.get("mode", "repair"))
+            capture_post(c, item, result["data"], result.get("includes", {}).get("media", []), run, p.get("mode", "repair"), result.get("includes", {}).get("users", []))
         return {"captured": source}
     if kind == "text":
         with db() as c:
@@ -325,11 +328,19 @@ def execute(stage):
             download(url, path, ASSET_LIMIT)
         if media["type"] == "photo":
             try:
+                from raster import convert_svg
+                convert_svg(path)
                 with Image.open(path) as im:
+                    tiny = max(im.size) <= 2
                     im.verify()
             except (OSError, ValueError):
                 path.unlink(missing_ok=True)
                 raise RuntimeError("invalid_image_bytes") from None
+            if tiny:
+                path.unlink(missing_ok=True)
+                with db() as c:
+                    c.execute("UPDATE assets SET state='evicted',bytes=0 WHERE id=?", (asset,))
+                return {"asset": asset, "coverage": ["Tracking-sized image omitted (2 pixels or smaller)."]}
         else:
             try:
                 info = probe(path)
@@ -368,9 +379,12 @@ def execute(stage):
     path = directory / p["path"]
     if not path.is_file():
         raise RuntimeError("source_retrieval_required")
-    meta = {"asset_id": asset, "url": p.get("source_url", "https://x.com/i/status/" + p["post"]), "sha256": p["sha256"]}
+    meta = {"owner_post": p["post"], "asset_id": asset, "url": p.get("source_url", "https://x.com/i/status/" + p["post"]), "sha256": p["sha256"]}
     text, vector, evidence_kind = "", None, kind
     if kind in ("image", "ocr", "caption"):
+        with Image.open(path) as image:
+            if max(image.size) <= 2:
+                return {"asset": asset, "coverage": ["Tracking-sized image omitted (2 pixels or smaller)."]}
         if kind == "image":
             with Image.open(path) as image:
                 vector = encode(text="<|image|>", images=image.convert("RGB"))[0].tobytes()
@@ -600,7 +614,7 @@ def overview():
             if not work:
                 run['label'] = 'Retry unfinished work'
             elif work['kind'] == 'sync':
-                run['label'] = {'new': 'Sync new bookmarks', 'full': 'Full bookmark sync', 'folders': 'Folder sync'}.get(work['mode'], 'Bookmark sync')
+                run['label'] = {'new': 'Sync new bookmarks', 'full': 'Full bookmark sync', 'folders': 'Folder sync', 'sample': 'Import 10 bookmarks'}.get(work['mode'], 'Bookmark sync')
             else:
                 run['label'] = {'rebuild': 'Rebuild saved content', 'refresh': 'Refresh sources'}.get(work['mode'], 'Process bookmarks')
             run['items'] = c.execute("SELECT count(DISTINCT item) FROM (SELECT item FROM jobs WHERE run=? UNION SELECT item FROM stages WHERE run=?) WHERE item!=''", (run['id'], run['id'])).fetchone()[0]

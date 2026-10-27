@@ -1,6 +1,18 @@
 # Verification and remaining limitations
 
-Version 0.7.1 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.2 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.2 reader and source scope
+
+The reader uses react-tweet components with saved X API content. Direct parent/quote cards have captured author/media metadata; other replies are excluded. A migrated copy of the existing sample retained all 344 stored chunks while exposing 119 in-scope chunks. The reported post retained its 14 old replies on disk and returned none through detail, read, browse filtering or context search. A controlled import retained 10 posts despite a next-page cursor, made no folder calls, captured two direct references and did not fetch their nested reference.
+
+Remote previews require X media availability and a host that permits the declared pbs.twimg.com/video.twimg.com resource domains. Saved content remains available when media expires or fails. Entity offsets from truncated tweet text are not applied blindly to full long-form text; source text is escaped before react-tweet rendering.
+
+An explicitly authorized fresh sample on the maintainer's Mac imported 10 bookmarks and one direct parent using two X requests, with no folder scan or conversation search. All 202 processing stages completed after targeted recovery; the library was paused with zero temporary-media bytes and no failed/waiting/unavailable stages. All 10 bookmarks have saved likes and impressions. Three representative retrieval queries ranked the expected bookmark first, including a query answered by a visual description. This is a small sample, not a quality benchmark.
+
+The sample exposed linked-page SVG graphics and a 1×1 tracking pixel. SVGs now render locally through a bounded subprocess before normal image processing; external resource references are rejected. Tracking-sized images are omitted. All six affected SVGs rendered and their OCR was checked; the expanded nine-check native preflight passed. One linked YouTube page was recovered in a background browser, preserving its description and displayed auto-generated transcript without comments or link crawling. The sampled X audio produced no detected speech; generated spoken-audio preflight passed. A completed stage is not a guarantee that speech recognition was accurate.
+
+The v0.7.2 installation and local MCP discovery were verified through CLI/control APIs. The installed reader was checked against the fresh library in a read-only browser harness, plus a 390-pixel dark layout. The active Codex chat retained its earlier MCP connection during the update; an already-open panel/client may need reopening or a new chat to pick up the installed version. No desktop UI takeover or public release was performed.
 
 ## Verified for 0.7.1 UI polish
 

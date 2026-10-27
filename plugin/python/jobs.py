@@ -73,17 +73,17 @@ def sync_folders():
 
 
 def sync(mode="new"):
-    if mode not in ("new", "full"):
-        raise ValueError("Sync mode must be new or full.")
+    if mode not in ("new", "full", "sample"):
+        raise ValueError("Sync mode must be new, full or sample.")
     if not config().get("account"):
         raise RuntimeError("Connect X first.")
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
-        if not setting("full_inventory_at"):
+        if mode != "sample" and not setting("full_inventory_at"):
             mode = "full"
         existing = resume_sync(c, mode)
         folders = setting("folder_inventory", {}) or {}
-        check_folders = (
+        check_folders = mode != "sample" and (
             mode == "full"
             or not folders.get("complete")
             or time.time() - folders.get("at", 0) >= FOLDER_INTERVAL
@@ -96,7 +96,7 @@ def sync(mode="new"):
                 "returned": 0,
                 "cursor": None,
                 "cursors": [],
-                "page_size": 10 if mode == "new" else 100,
+                "page_size": 10 if mode in ("new", "sample") else 100,
                 "check_folders": check_folders,
             },
         )
@@ -178,12 +178,14 @@ def sync_step(job):
                 ).fetchone()
                 for r in data
             )
+            if p.get("mode") == "sample":
+                data = data[:10]
             upsert_page(c, {**page, "data": data}, run)
             advance(p, nxt)
             p.update(
                 pages=p.get("pages", 0) + 1, returned=p.get("returned", 0) + len(data)
             )
-            if not nxt or (p.get("mode") == "new" and known):
+            if p.get("mode") == "sample" or not nxt or (p.get("mode") == "new" and known):
                 p.update(
                     phase="folders" if p.get("check_folders", True) else "finish",
                     cursor=None,
@@ -366,6 +368,8 @@ def finish_sync(run, p):
                     ),
                 ),
             )
+        if p.get("mode") == "sample":
+            c.execute("INSERT OR REPLACE INTO settings VALUES ('sample_only','true')")
         if p.get("mode") != "folders":
             c.execute(
                 "INSERT OR REPLACE INTO settings VALUES ('last_inventory',?)",

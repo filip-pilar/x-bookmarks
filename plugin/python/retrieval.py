@@ -17,12 +17,12 @@ def predicate(args):
             continue
         if key == "content_type":
             where.append(
-                "EXISTS(SELECT 1 FROM enrichment e WHERE e.item=i.id AND e.revision=i.source_revision AND json_extract(e.payload,'$.content_type.name')=?)"
+                "EXISTS(SELECT 1 FROM enrichment e WHERE e.item=i.id AND e.revision=i.source_revision AND EXISTS(SELECT 1 FROM scoped_chunks sc WHERE sc.item=i.id AND sc.kind='summary') AND json_extract(e.payload,'$.content_type.name')=?)"
             )
         else:
             path = "$.tags" if key == "tag" else "$.entities"
             where.append(
-                f"EXISTS(SELECT 1 FROM enrichment e,json_each(e.payload,'{path}') j WHERE e.item=i.id AND e.revision=i.source_revision AND lower(json_extract(j.value,'$.name'))=lower(?))"
+                f"EXISTS(SELECT 1 FROM enrichment e,json_each(e.payload,'{path}') j WHERE e.item=i.id AND e.revision=i.source_revision AND EXISTS(SELECT 1 FROM scoped_chunks sc WHERE sc.item=i.id AND sc.kind='summary') AND lower(json_extract(j.value,'$.name'))=lower(?))"
             )
         params.append(args[key])
     if args.get("folder"):
@@ -50,7 +50,7 @@ def search(args):
     limit = max(1, min(20, int(args.get("limit", 8))))
     with db() as c:
         exists = c.execute(
-            f"SELECT 1 FROM chunks c JOIN items i ON i.id=c.item WHERE {where} AND c.model=? LIMIT 1",
+            f"SELECT 1 FROM scoped_chunks c JOIN items i ON i.id=c.item WHERE {where} AND c.model=? LIMIT 1",
             params + [FINGERPRINT],
         ).fetchone()
         stop = {
@@ -88,7 +88,7 @@ def search(args):
             hits = [
                 r[0]
                 for r in c.execute(
-                    f"""SELECT fts.id FROM fts JOIN chunks c ON c.id=fts.id JOIN items i ON i.id=c.item WHERE fts MATCH ? AND {where} ORDER BY bm25(fts) LIMIT 100""",
+                    f"""SELECT fts.id FROM fts JOIN scoped_chunks c ON c.id=fts.id JOIN items i ON i.id=c.item WHERE fts MATCH ? AND {where} ORDER BY bm25(fts) LIMIT 100""",
                     [match] + params,
                 )
             ]
@@ -103,7 +103,7 @@ def search(args):
     best = {}
     with db() as c:
         cursor = c.execute(
-            f"SELECT c.id,c.item,c.vector FROM chunks c JOIN items i ON i.id=c.item WHERE {where} AND c.model=?",
+            f"SELECT c.id,c.item,c.vector FROM scoped_chunks c JOIN items i ON i.id=c.item WHERE {where} AND c.model=?",
             params + [FINGERPRINT],
         )
         while exists and (batch := cursor.fetchmany(512)):
@@ -135,14 +135,14 @@ def search(args):
                 best = {item: best[item] for item in retained}
         # Lexical evidence remains usable before local embedding work finishes.
         for chunk_id, position in keyword.items():
-            row = c.execute("SELECT item FROM chunks WHERE id=?", (chunk_id,)).fetchone()
+            row = c.execute("SELECT item FROM scoped_chunks WHERE id=?", (chunk_id,)).fetchone()
             if row and row[0] not in best:
                 best[row[0]] = [(0.5 + .08 / position, chunk_id, 0.0)]
         ranked = heapq.nlargest(limit, (max(heap) for heap in best.values() if heap))
         matches = []
         for _, chunk_id, score in ranked:
             r = c.execute(
-                "SELECT c.*,i.title,i.url,i.author,i.raw,i.coverage,i.refreshed,i.membership FROM chunks c JOIN items i ON i.id=c.item WHERE c.id=?",
+                "SELECT c.*,i.title,i.url,i.author,i.raw,i.coverage,i.refreshed,i.membership FROM scoped_chunks c JOIN items i ON i.id=c.item WHERE c.id=?",
                 (chunk_id,),
             ).fetchone()
             if not r:
@@ -171,7 +171,7 @@ def search(args):
                     "supporting_evidence": [
                         dict(v)
                         for v in c.execute(
-                            "SELECT id,kind,text,metadata FROM chunks WHERE item=? AND kind!='summary' AND id IN (SELECT value FROM json_each(?)) LIMIT 4",
+                            "SELECT id,kind,text,metadata FROM scoped_chunks WHERE item=? AND kind!='summary' AND id IN (SELECT value FROM json_each(?)) LIMIT 4",
                             (
                                 r["item"],
                                 json.dumps(
@@ -211,7 +211,7 @@ def collections(args=None):
             rows = [
                 dict(r)
                 for r in c.execute(
-                    f"SELECT min(json_extract(j.value,'$.name')) AS name,count(DISTINCT e.item) AS count FROM enrichment e JOIN items i ON i.id=e.item,json_each({expression}) j WHERE i.active=1 AND i.hash=i.processed_hash AND e.revision=i.source_revision AND instr(lower(json_extract(j.value,'$.name')),lower(?))>0 GROUP BY lower(json_extract(j.value,'$.name')) ORDER BY count DESC,name LIMIT ?",
+                    f"SELECT min(json_extract(j.value,'$.name')) AS name,count(DISTINCT e.item) AS count FROM enrichment e JOIN items i ON i.id=e.item,json_each({expression}) j WHERE i.active=1 AND i.hash=i.processed_hash AND e.revision=i.source_revision AND EXISTS(SELECT 1 FROM scoped_chunks sc WHERE sc.item=i.id AND sc.kind='summary') AND instr(lower(json_extract(j.value,'$.name')),lower(?))>0 GROUP BY lower(json_extract(j.value,'$.name')) ORDER BY count DESC,name LIMIT ?",
                     (path, query, limit + 1),
                 )
             ]
@@ -229,7 +229,6 @@ def collections(args=None):
 def read(args):
     uri = args.get("uri") or "bookmark://item/" + args.get("item", "")
     offset = max(0, int(args.get("offset", 0)))
-    limit = 12000
     if uri == "bookmark://library" or uri.startswith("bookmark://folder/"):
         folder = uri.split("/")[-1] if "/folder/" in uri else None
         with db() as c:
@@ -261,37 +260,13 @@ def read(args):
         raise ValueError("Invalid bookmark resource.")
     with db() as c:
         r = c.execute("SELECT * FROM items WHERE id=? AND active=1", (item,)).fetchone()
-        original_folders = folders(c, item)
         checked_folders = folder_check(c, item)
         enrichment = annotation(c, item)
     if not r:
         raise ValueError("Bookmark is not in the current local library.")
-    if r["processor"] == "5":
-        result = __import__("library").detail({"item": item, "offset": offset})
-        result.update(uri=uri, offset=offset)
-        return result
-    path = HOME / "items" / item / "content.md"
-    if r["processed_hash"] != r["hash"] or not path.exists():
-        return {
-            "uri": uri,
-            "status": r["state"],
-            "message": "Updated source is awaiting processing.",
-        }
-    text = path.read_text()
-    return {
-        "uri": uri,
-        "url": r["url"],
-        "text": text[offset : offset + limit],
-        "offset": offset,
-        "next_offset": offset + limit if offset + limit < len(text) else None,
-        "coverage": json.loads(r["coverage"]),
-        "membership": r["membership"],
-        "local_path": str(path),
-        "untrusted_source_content": True,
-        "folders": original_folders,
-        "folder_check": checked_folders,
-        "enrichment": enrichment,
-    }
+    result = __import__("library").detail({"item": item, "offset": offset})
+    result.update(uri=uri, offset=offset, folder_check=checked_folders, enrichment=enrichment)
+    return result
 
 
 def mentions(query):

@@ -6,7 +6,7 @@ Browse and search saved X posts, direct reply/quote context, linked pages, image
 
 Use the release's **SETUP_PROMPT.md** or **UPDATE_PROMPT.md** in a local desktop chat with Browser and command/file access. The assistant does routine installation; the user handles personal sign-in, consent, model terms, payments and administrator prompts. Select GPT-6 Astra xhigh for that chat if available.
 
-Requirements: Apple silicon, macOS 14+, Node 22+, Python 3.14, FFmpeg/ffprobe, yt-dlp, and compatible Swift 6.2+/SDK. The ZIP has built JavaScript and native source, never native executables, models or personal configuration. `python3.14 scripts/setup.py --client-id 'PUBLIC_CLIENT_ID'` builds helpers locally, downloads Gemma/Parakeet and runs the eight local processing checks. Omit `--client-id` on updates. No maintainer signing certificate or Apple Developer account is required.
+Requirements: Apple silicon, macOS 14+, Node 22+, Python 3.14, FFmpeg/ffprobe, yt-dlp, and compatible Swift 6.2+/SDK. The ZIP has built JavaScript and native source, never native executables, models or personal configuration. `python3.14 scripts/setup.py --client-id 'PUBLIC_CLIENT_ID'` builds helpers locally, downloads Gemma/Parakeet and runs the local processing checks, including SVG rendering. Omit `--client-id` on updates. No maintainer signing certificate or Apple Developer account is required.
 
 Each recipient uses their own X developer app, billing and X account. Configure a Native App/public OAuth 2.0 PKCE client, read access, callback `http://127.0.0.1:8765/oauth/x/callback`, and scopes `tweet.read users.read bookmark.read offline.access`. No client secret is needed. Connect X after tool discovery. Use a separate library for a different X account.
 

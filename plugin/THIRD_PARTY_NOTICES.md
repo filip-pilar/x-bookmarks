@@ -6,4 +6,7 @@
 - MCP TypeScript SDK and MCP Apps: Apache-2.0. Zod: MIT. Their licenses accompany the bundled release in `licenses/`.
 - Subscription identity validation uses PyJWT 2.15.1 (MIT) and cryptography 50.0.2 (Apache-2.0 OR BSD-3-Clause). PDF text extraction uses pypdf 6.21.3 (BSD-3-Clause). These are installed on the recipient's device, not bundled in this source package.
 - Python dependencies are installed from the pinned requirements and retain their package licenses. FFmpeg, yt-dlp, Node and Python are provisioned separately; no downloaded bookmark media or private library files are distributed in the plugin.
+- Linked-page SVG rendering uses resvg-py 0.5.0, installed on the recipient's device with its package notices. SVG references to external resources are rejected; raster output and processing time are bounded.
 - DigUp informed the design. No DigUp source code is included.
+
+- The saved-post renderer bundles React, React DOM, react-tweet, SWR and clsx (MIT) and SWC helpers (Apache-2.0). Their license notices accompany the release. Tweet rendering uses saved X API data; it does not use a public syndication proxy. Remote media is loaded from X when viewed, with video playback on demand.

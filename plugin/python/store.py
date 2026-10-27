@@ -108,6 +108,9 @@ def init():
                     (inventory["at"], inventory["at"]),
                 )
         c.execute("UPDATE jobs SET state='queued' WHERE state='running'")
+        from pipeline import migrate
+        migrate(c)
+        __import__("scope").migrate(c)
         from enrichment import source_revision
 
         for row in c.execute(
@@ -117,8 +120,6 @@ def init():
             c.execute(
                 "UPDATE items SET source_revision=? WHERE id=?", (revision, row[0])
             )
-        from pipeline import migrate
-        migrate(c)
 
 
 def setting(key, default=None):
@@ -332,10 +333,10 @@ def status():
         from embedding import FINGERPRINT
 
         vectors = c.execute(
-            "SELECT count(*) FROM chunks WHERE model=?", (FINGERPRINT,)
+            "SELECT count(*) FROM scoped_chunks WHERE model=?", (FINGERPRINT,)
         ).fetchone()[0]
         searchable = c.execute(
-            "SELECT count(DISTINCT chunks.item) FROM chunks JOIN items ON items.id=chunks.item WHERE items.active=1 AND (chunks.text!='' OR chunks.model=?)",
+            "SELECT count(DISTINCT chunks.item) FROM scoped_chunks AS chunks JOIN items ON items.id=chunks.item WHERE items.active=1 AND (chunks.text!='' OR chunks.model=?)",
             (FINGERPRINT,),
         ).fetchone()[0]
         content = {
@@ -345,7 +346,7 @@ def status():
                 "segments": r["segments"],
             }
             for r in c.execute(
-                "SELECT kind,count(*) AS segments,count(DISTINCT chunks.item) AS bookmarks,count(DISTINCT coalesce(json_extract(metadata,'$.asset_id'),json_extract(metadata,'$.source_id'),json_extract(metadata,'$.path'),chunks.item)) AS sources FROM chunks JOIN items ON items.id=chunks.item WHERE items.active=1 AND chunks.model=? AND chunks.vector IS NOT NULL GROUP BY kind",
+                "SELECT kind,count(*) AS segments,count(DISTINCT chunks.item) AS bookmarks,count(DISTINCT coalesce(json_extract(metadata,'$.asset_id'),json_extract(metadata,'$.source_id'),json_extract(metadata,'$.path'),chunks.item)) AS sources FROM scoped_chunks AS chunks JOIN items ON items.id=chunks.item WHERE items.active=1 AND chunks.model=? AND chunks.vector IS NOT NULL GROUP BY kind",
                 (FINGERPRINT,),
             )
         }

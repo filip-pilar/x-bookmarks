@@ -1,10 +1,11 @@
+import { renderTweets, type PostCard } from "./tweet.js";
 import {
   App,
   applyDocumentTheme,
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const app = new App({ name: "Bookmark Library", version: "0.7.1" }),
+const app = new App({ name: "Bookmark Library", version: "0.7.2" }),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
 const input = (id: string) => $(id) as HTMLInputElement;
@@ -91,6 +92,7 @@ type State = {
 };
 type Evidence = { id: string; kind: string; text: string; metadata: Metadata };
 type Detail = Omit<Row, "evidence"> & {
+  post_cards: PostCard[];
   evidence: Evidence[];
   matched_evidence?: Evidence;
   next_offset: number | null;
@@ -804,6 +806,9 @@ function renderEvidence(d: Detail, preserve: boolean) {
   for (const e of all) {
     if (
       (e.kind === "text" && e.id !== currentMatch) ||
+      (e.kind === "context" &&
+        e.id !== currentMatch &&
+        d.post_cards.some((card) => card.post.id === e.metadata.source_id)) ||
       (!e.text && e.id !== currentMatch)
     )
       continue;
@@ -911,7 +916,12 @@ function renderDetail(preserve = true) {
   if (!selected) return;
   const d = selected;
   $("detail-heading").textContent = d.author ? "@" + d.author : "Saved post";
-  $("detail-text").textContent = d.text || d.title;
+  $("detail-heading").classList.add("sr-only");
+  renderTweets(
+    $("detail-text"),
+    d.post_cards,
+    (url) => void act(() => openUrl(url)),
+  );
   ($("source") as HTMLAnchorElement).href = /^https?:\/\//.test(d.url)
     ? d.url
     : "https://x.com";

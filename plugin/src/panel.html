@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Bookmark Library</title>
     <style>
+      /*TWEET_CSS*/
       :root {
         font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
         --surface: var(--color-background-primary, #fff);
@@ -365,6 +366,58 @@
       #detail {
         max-width: 70ch;
         margin: auto;
+      }
+      .saved-tweet {
+        max-width: 100%;
+        margin: 12px 0;
+        --tweet-body-font-size: 17px;
+        --tweet-body-line-height: 1.6;
+      }
+      .saved-author {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .saved-author img {
+        border-radius: 50%;
+      }
+      .saved-author span {
+        display: block;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .saved-author time {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .saved-video {
+        display: block;
+        width: 100%;
+        max-height: 520px;
+        border-radius: 12px;
+        margin-top: 14px;
+        background: #111;
+      }
+      .saved-article p {
+        white-space: pre-wrap;
+        line-height: 1.6;
+      }
+      .media-unavailable {
+        display: block;
+        padding: 12px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .direct-context {
+        margin-left: 24px;
+        padding-left: 16px;
+        border-left: 2px solid var(--line);
+      }
+      .direct-context h3 {
+        margin: 22px 0 0;
+        font-size: 14px;
       }
       #detail-heading {
         font-size: 14px;

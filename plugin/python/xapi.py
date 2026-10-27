@@ -10,7 +10,7 @@ REDIRECT = "http://127.0.0.1:8765/oauth/x/callback"
 FIELDS = {
     "tweet.fields": "author_id,created_at,conversation_id,entities,attachments,referenced_tweets,note_tweet,article,public_metrics",
     "expansions": "author_id,attachments.media_keys,article.cover_media,article.media_entities",
-    "user.fields": "name,username",
+    "user.fields": "name,username,profile_image_url",
     "media.fields": "type,url,preview_image_url,duration_ms,variants,alt_text,width,height,public_metrics",
 }
 LOCK = threading.RLock()

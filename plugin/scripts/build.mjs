@@ -19,10 +19,19 @@ const bundle = await build({
   format: "esm",
   target: "es2022",
   write: false,
+  outfile: "dist/panel.js",
+  loader: { ".module.css": "local-css" },
+  define: { "process.env.NODE_ENV": '"production"' },
   minify: true,
 });
-const html = (await readFile("src/panel.html", "utf8")).replace(
-  "/*BUNDLE*/",
-  () => bundle.outputFiles[0].text.replace(/<\/script/gi, "<\\/script"),
-);
+const html = (await readFile("src/panel.html", "utf8"))
+  .replace(
+    "/*TWEET_CSS*/",
+    () => bundle.outputFiles.find((f) => f.path.endsWith(".css"))?.text || "",
+  )
+  .replace("/*BUNDLE*/", () =>
+    bundle.outputFiles
+      .find((f) => f.path.endsWith(".js"))
+      .text.replace(/<\/script/gi, "<\\/script"),
+  );
 await writeFile("dist/panel.html", html);

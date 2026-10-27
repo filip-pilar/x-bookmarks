@@ -23,7 +23,7 @@ def source_revision(c, item):
     chunks = [
         tuple(r)
         for r in c.execute(
-            "SELECT id,kind,text,metadata FROM chunks WHERE item=? AND kind!='summary' ORDER BY id",
+            "SELECT id,kind,text,metadata FROM scoped_chunks WHERE item=? AND kind!='summary' ORDER BY id",
             (item,),
         )
     ]
@@ -60,7 +60,7 @@ def annotation(c, item):
         "SELECT e.*,i.source_revision,i.hash,i.processed_hash FROM enrichment e JOIN items i ON i.id=e.item WHERE e.item=?",
         (item,),
     ).fetchone()
-    if not row:
+    if not row or not c.execute("SELECT 1 FROM scoped_chunks WHERE item=? AND kind='summary'", (item,)).fetchone():
         return None
     payload = json.loads(row["payload"])
     payload["stale"] = (
@@ -73,7 +73,7 @@ def annotation(c, item):
 def overview(c):
     total = c.execute("SELECT count(*) FROM items WHERE active=1").fetchone()[0]
     fresh = c.execute(
-        "SELECT count(*) FROM enrichment e JOIN items i ON i.id=e.item WHERE i.active=1 AND i.hash=i.processed_hash AND e.revision=i.source_revision"
+        "SELECT count(*) FROM enrichment e JOIN items i ON i.id=e.item WHERE i.active=1 AND i.hash=i.processed_hash AND e.revision=i.source_revision AND EXISTS(SELECT 1 FROM scoped_chunks sc WHERE sc.item=i.id AND sc.kind='summary')"
     ).fetchone()[0]
     saved = c.execute(
         "SELECT count(*) FROM enrichment e JOIN items i ON i.id=e.item WHERE i.active=1"
@@ -93,7 +93,7 @@ def pending(args):
         rows = [
             dict(r)
             for r in c.execute(
-                "SELECT i.id,i.title,i.source_revision,i.coverage,CASE WHEN e.item IS NULL THEN 'missing' ELSE 'stale' END AS enrichment_state FROM items i LEFT JOIN enrichment e ON e.item=i.id WHERE i.active=1 AND i.hash=i.processed_hash AND i.source_revision!='' AND (e.item IS NULL OR e.revision!=i.source_revision) AND NOT EXISTS (SELECT 1 FROM stages s WHERE s.item=i.id AND s.state NOT IN ('complete','unavailable')) AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.kind='process' AND j.item=i.id AND j.state IN ('queued','running','waiting','failed')) ORDER BY i.id DESC LIMIT ?",
+                "SELECT i.id,i.title,i.source_revision,i.coverage,CASE WHEN e.item IS NULL THEN 'missing' ELSE 'stale' END AS enrichment_state FROM items i LEFT JOIN enrichment e ON e.item=i.id WHERE i.active=1 AND i.hash=i.processed_hash AND i.source_revision!='' AND (e.item IS NULL OR e.revision!=i.source_revision OR NOT EXISTS(SELECT 1 FROM scoped_chunks sc WHERE sc.item=i.id AND sc.kind='summary')) AND NOT EXISTS (SELECT 1 FROM stages s WHERE s.item=i.id AND s.state NOT IN ('complete','unavailable')) AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.kind='process' AND j.item=i.id AND j.state IN ('queued','running','waiting','failed')) ORDER BY i.id DESC LIMIT ?",
                 (limit,),
             )
         ]
@@ -124,7 +124,7 @@ def evidence(args):
         ):
             raise ValueError("Bookmark needs source processing before enrichment.")
         chunks = c.execute(
-            "SELECT id,kind,text,metadata FROM chunks WHERE item=? AND kind!='summary' ORDER BY CASE kind WHEN 'text' THEN 0 WHEN 'context' THEN 1 WHEN 'linked-document' THEN 2 WHEN 'transcript' THEN 3 WHEN 'ocr' THEN 4 ELSE 5 END,id LIMIT ? OFFSET ?",
+            "SELECT id,kind,text,metadata FROM scoped_chunks WHERE item=? AND kind!='summary' ORDER BY CASE kind WHEN 'text' THEN 0 WHEN 'context' THEN 1 WHEN 'linked-document' THEN 2 WHEN 'transcript' THEN 3 WHEN 'ocr' THEN 4 ELSE 5 END,id LIMIT ? OFFSET ?",
             (item, limit + 1, offset),
         ).fetchall()
         return {
@@ -268,7 +268,7 @@ def save(args):
         ids = {
             r[0]
             for r in c.execute(
-                "SELECT id FROM chunks WHERE item=? AND kind!='summary'", (item,)
+                "SELECT id FROM scoped_chunks WHERE item=? AND kind!='summary'", (item,)
             )
         }
         payload = validate(args, ids)

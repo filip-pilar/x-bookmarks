@@ -41,6 +41,7 @@ Defaults:
 - 2 GiB temporary media budget (`media_cache_bytes` in private configuration), plus a 2 GiB free-disk reserve. Reserve headroom for both processing lanes before admitting scratch work.
 - 192 MiB maximum encoded asset; choose the first MP4 variant at or above 800 kbit/s, otherwise the largest offered variant. Unsupported or oversized sources retain explicit coverage gaps.
 - Videos up to four hours, subject to byte/scratch budgets; eight-second windows, one timestamped frame per second, maximum 1280-pixel frame edge. This sampling can miss brief events and tiny details.
+- Linked-page SVG graphics are rasterized locally at up to 1024 pixels per edge before the image stages. Input size, time and subprocess memory are bounded; referenced external resources are rejected. Images no larger than 2×2 pixels are treated as tracking-sized content and omitted.
 - One local stage and one description request at a time. Interactive embedding queries have priority between background calls.
 - Transcription scratch is reserved conservatively. The full transcript and word times are committed, with overlapping readable segments for retrieval. Silent video has no required speech stage.
 - Ordinary transient failures retry up to four attempts with backoff. X rate limits use their retry time. Plan usage waits an hour before checking again; storage backpressure waits five minutes. Neither delay promises a provider reset time.
@@ -55,7 +56,7 @@ Historical evidence revisions are retained when a refreshed media/page source ch
 
 The list is the default; search uses lexical and semantic evidence and ranks distinct bookmarks. Folder filters and saved metric sorting are optional. Item details show saved text, direct context, expandable linked pages, descriptions, transcripts/OCR, engagement snapshots and actionable stage issues. Returning preserves the query, filters, view, scroll position and keyboard focus. Search shows up to 20 top matches with the matching source type, passage and timestamp; opening one targets that evidence even beyond the first page. Counts in browsing refer to the selected folder. Pagination keeps existing rows and defers offscreen rendering.
 
-“Use in ChatGPT” drafts a request without sending it. “Open on X” opens the original. The gallery uses currently cached images and readable text cards after eviction. The implementation keeps the existing vanilla TypeScript MCP panel. A live `react-tweet` renderer was a candidate, not a dependency: no public preview proxy or new React runtime is needed for the chosen saved-evidence view.
+“Use in ChatGPT” drafts a request without sending it. “Open on X” opens the original. The gallery uses currently cached images and readable text cards after eviction. A React island uses `react-tweet` for rich saved-post cards, with author identity, date, linked text and media. Saved X API data supplies the renderer; no syndication proxy is called. Images load from X when viewed; video streams only on playback, with a fallback when unavailable. Durable text remains readable offline. Only the bookmark’s direct parent and quote appear as context cards.
 
 Original inspection happens through the source/browser when the saved evidence is insufficient. Offline playback and a permanent image gallery are not promised. Search embeddings alone never substantiate claims about unseen pixels.
 
@@ -65,10 +66,12 @@ Storage reports distinguish evidence/index, temporary media and models/runtime. 
 
 ## Migration, setup and distribution
 
-The migration backs up a pre-0.7 SQLite database before adding run/stage/source/metric tables. Existing evidence and vectors remain. Existing jobs become paused runs. Updates preserve the library and finish paused; validation uses an isolated library and never starts a bulk import.
+The migration backs up a pre-0.7 SQLite database before adding run/stage/source/metric tables. Existing evidence and vectors remain. Evidence ownership restricts the reader, lexical/vector retrieval, enrichment and thumbnails to the bookmark and its direct parent/quote sources. Unrelated historical replies and their derived content remain stored but are not exposed. Summaries citing excluded evidence are excluded too. Existing jobs become paused runs. Updates preserve the library and finish paused; validation uses an isolated library and never starts a bulk import.
 
 The source-only release contains built JavaScript, native Swift source, Python and copy-paste setup/update prompts. Every recipient builds native helpers and downloads Gemma/Parakeet on their Mac. No maintainer signing certificate or Apple Developer account is needed. X credentials remain in Keychain; ChatGPT registration/tokens are private local files excluded from backups and releases. Portable library backups retain saved evidence/indexes, not disposable media or OAuth credentials.
 
 Native processing preflight and the resumable `verify-description.py` are separate requirements. The latter generates an image and frame pair, saves each completed response before proceeding, and reuses saved results on rerun. An account connection alone is not proof that inference works. Fresh-recipient setup, actual MCP host activation and arbitrary real-source quality remain distinct from build checks and isolated rehearsals.
 
 See [verification and limits](KNOWN_ISSUES.md). No unit tests are used. Existing static/build checks and controlled integration rehearsals provide release evidence. Publication and installation are separate actions from implementing or packaging this design.
+
+A `sample` sync imports at most 10 recent bookmarks from one API page, with full processing of their allowed sources. It does not scan folders, recurse through references or mark the full inventory complete. A sample is separate from setup/update verification and requires explicit authorization.

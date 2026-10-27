@@ -11,7 +11,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home =
   process.env.BOOKMARK_LIBRARY_HOME ||
   join(homedir(), "Library/Application Support/BookmarkLibrary");
-const ui = "ui://bookmark-library/control-0.7.1.html";
+const ui = "ui://bookmark-library/control-0.7.2.html";
 const iconSource = await readFile(join(root, "assets/x-bookmark.svg"), "utf8");
 const icons = (["light", "dark"] as const).map((theme) => ({
   src:
@@ -52,7 +52,7 @@ async function ensure() {
     current = await request("status");
   } catch {}
   if (current) {
-    if (current.backend_version !== "0.7.1")
+    if (current.backend_version !== "0.7.2")
       throw new Error(
         "Bookmark Library backend needs a restart to load the installed update. Pause processing before restarting its local service.",
       );
@@ -92,7 +92,7 @@ async function ensure() {
           status = await request("status");
         } catch {}
         if (status) {
-          if (status.backend_version !== "0.7.1")
+          if (status.backend_version !== "0.7.2")
             throw new Error(
               "A different Bookmark Library backend is already running. Pause processing and restart its local service to load the update.",
             );
@@ -128,7 +128,7 @@ async function call(action: string, args: Record<string, unknown> = {}) {
   }
 }
 serveStdio(() => {
-  const server = new McpServer({ name: "bookmark-library", version: "0.7.1" });
+  const server = new McpServer({ name: "bookmark-library", version: "0.7.2" });
   const extensions = new OpenAIExtensions(server);
   server.registerResource(
     "controls",
@@ -143,7 +143,13 @@ serveStdio(() => {
           _meta: {
             ui: {
               prefersBorder: false,
-              csp: { connectDomains: [], resourceDomains: [] },
+              csp: {
+                connectDomains: [],
+                resourceDomains: [
+                  "https://pbs.twimg.com",
+                  "https://video.twimg.com",
+                ],
+              },
             },
             "openai/ui": {
               preferredDisplayMode: "fullscreen",
@@ -362,8 +368,10 @@ serveStdio(() => {
     "sync",
     {
       description:
-        "Import the first inventory, or sync new bookmarks in pages of 10 until an entirely previously saved page is reached. mode=full checks all exposed pages and folders. Routine sync refreshes folders when their last check is at least 24 hours old. Saved sources are reused; no automatic 24-hour context refresh. X reads use credits. Only call for an explicit import/sync request or an authorized automation.",
-      inputSchema: z.object({ mode: z.enum(["new", "full"]).default("new") }),
+        "Import the first inventory, or sync new bookmarks in pages of 10 until an entirely previously saved page is reached. mode=sample imports at most 10 recent bookmarks and their direct sources without scanning folders; mode=full checks all exposed pages and folders. Routine sync refreshes folders when their last check is at least 24 hours old. Saved sources are reused; no automatic 24-hour context refresh. X reads use credits. Only call for an explicit import/sync request or an authorized automation.",
+      inputSchema: z.object({
+        mode: z.enum(["new", "full", "sample"]).default("new"),
+      }),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,

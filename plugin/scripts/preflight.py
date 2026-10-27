@@ -52,6 +52,14 @@ def main():
             raise RuntimeError("Vision did not recognize the generated image text.")
 
     check("ocr", vision)
+    def svg():
+        from raster import convert_svg
+        path = folder / 'svg-image.png'
+        path.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="160"><rect width="600" height="160" fill="white"/><text x="20" y="100" font-family="Arial" font-size="50">Bookmark Library</text></svg>')
+        if not convert_svg(path) or 'bookmark' not in ocr(path).lower():
+            raise RuntimeError('SVG rendering did not preserve the generated text.')
+
+    check("svg_rasterization", svg)
     check("text_embedding", lambda: encode(text="title: none | text: Bookmark library setup"))
     check("image_embedding", lambda: encode(text="<|image|>", images=image))
     command(["/usr/bin/say", "-o", folder / "speech.aiff", "Bookmark library is ready to search saved posts."])

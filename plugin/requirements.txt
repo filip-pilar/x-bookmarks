@@ -44,6 +44,7 @@ PyJWT==2.15.1
 cryptography==50.0.2
 pypdf==6.21.3
 regex==2026.9.29
+resvg-py==0.5.0
 rich==15.0.0
 safetensors==0.8.0
 scikit-learn==1.9.1

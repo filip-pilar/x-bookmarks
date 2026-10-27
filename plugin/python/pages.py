@@ -204,7 +204,7 @@ def save(args):
             raise ValueError("Invalid observed page URL.")
         complete = args.get("complete") is True
         result = {"text": text, "title": args.get("title", ""), "method": "desktop_browser", "url": p["url"], "final_url": observed, "complete": complete, "coverage": args.get("coverage", [])}
-        publish_text(c, stage["item"], stage["source"], fingerprint(text), "linked-document", text, {"url": p["url"], "method": "desktop_browser", "coverage": result["coverage"], "complete": complete})
+        publish_text(c, stage["item"], stage["source"], fingerprint(text), "linked-document", text, {"url": p["url"], "owner_post": p["post"], "linked_from": p["post"], "method": "desktop_browser", "coverage": result["coverage"], "complete": complete})
         queue(c, stage["item"], stage["source"], "text", fingerprint(text), {}, stage["run"])
         c.execute("UPDATE stages SET state=?,result=?,error=? WHERE id=?", ("complete" if complete else "browser", json.dumps(result), None if complete else "partial_browser_capture", stage["id"]))
     if complete:
