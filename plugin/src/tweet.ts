@@ -1,5 +1,6 @@
 import { createElement as h, useState, type ImgHTMLAttributes } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { flushSync } from "react-dom";
 import {
   TweetContainer,
   TweetBody,
@@ -87,7 +88,9 @@ function SafeImage(props: ImgHTMLAttributes<HTMLImageElement>) {
   return failed
     ? h(
         "span",
-        { className: "media-unavailable" },
+        {
+          className: `${props.className || ""} media-unavailable image-unavailable`,
+        },
         "Image unavailable · saved text remains available",
       )
     : h("img", {
@@ -98,6 +101,29 @@ function SafeImage(props: ImgHTMLAttributes<HTMLImageElement>) {
       });
 }
 
+const displayName = (user: PostCard["user"]) =>
+  user.name && /[\p{L}\p{N}\p{Emoji_Presentation}]/u.test(user.name)
+    ? user.name
+    : user.username || "Saved post";
+
+function Avatar({ user }: { user: PostCard["user"] }) {
+  const [failed, fail] = useState(false);
+  return h(
+    "span",
+    { className: "saved-avatar", "aria-hidden": true },
+    !failed && mediaUrl(user.profile_image_url)
+      ? h("img", {
+          src: mediaUrl(user.profile_image_url),
+          alt: "",
+          width: 36,
+          height: 36,
+          referrerPolicy: "no-referrer",
+          onError: () => fail(true),
+        })
+      : Array.from(displayName(user))[0].toUpperCase(),
+  );
+}
+
 function SavedVideo({ media }: { media: Media }) {
   const [failed, fail] = useState(false);
   const variants = (media.variants || [])
@@ -105,22 +131,39 @@ function SavedVideo({ media }: { media: Media }) {
     .sort((a, b) => (a.bit_rate || 0) - (b.bit_rate || 0));
   const source =
     variants.find((v) => (v.bit_rate || 0) >= 800000) || variants.at(-1);
-  return failed || !source
-    ? h(
-        "p",
-        { className: "media-unavailable" },
-        "Video unavailable here. Open on X to try the original; saved descriptions and transcripts remain available.",
-      )
-    : h("video", {
-        className: "saved-video",
-        controls: true,
-        playsInline: true,
-        preload: "none",
-        poster: mediaUrl(media.preview_image_url),
-        src: mediaUrl(source.url),
-        onError: () => fail(true),
-        "aria-label": "Saved post video",
-      });
+  const width = media.width && media.width > 0 ? media.width : 1600;
+  const height = media.height && media.height > 0 ? media.height : 900;
+  return h(
+    "div",
+    {
+      className: "saved-video-frame",
+      tabIndex: -1,
+      "aria-live": "polite",
+      style: { aspectRatio: `${width} / ${height}` },
+    },
+    failed || !source
+      ? h(
+          "span",
+          { className: "media-unavailable" },
+          "Video unavailable here. Open on X to try the original; saved descriptions and transcripts remain available.",
+        )
+      : h("video", {
+          className: "saved-video",
+          width,
+          height,
+          controls: true,
+          playsInline: true,
+          preload: "none",
+          poster: mediaUrl(media.preview_image_url),
+          src: mediaUrl(source.url),
+          onError: (event) => {
+            if (document.activeElement === event.currentTarget)
+              event.currentTarget.parentElement?.focus({ preventScroll: true });
+            fail(true);
+          },
+          "aria-label": "Saved post video",
+        }),
+  );
 }
 
 function SavedTweet({ card }: { card: PostCard }) {
@@ -204,6 +247,20 @@ function SavedTweet({ card }: { card: PostCard }) {
   tweet.entities = tweet.entities.map((e) =>
     e.type === "text" ? { ...e, text: escape(e.text) } : e,
   );
+  // An attached media link is already represented by the image/video below.
+  // Match the current post exactly so quote and external links stay visible.
+  tweet.entities = tweet.entities.filter(
+    (e) =>
+      !(
+        e.type === "url" &&
+        media.length &&
+        new RegExp(
+          `^https://(?:twitter|x)\\.com/[^/]+/status/${post.id}/(?:photo|video)/`,
+        ).test(e.href)
+      ),
+  );
+  const last = tweet.entities.at(-1);
+  if (last?.type === "text") last.text = last.text.trimEnd();
   const date = post.created_at ? new Date(post.created_at) : null;
   return h(
     TweetContainer,
@@ -211,18 +268,11 @@ function SavedTweet({ card }: { card: PostCard }) {
     h(
       "header",
       { className: "saved-author" },
-      mediaUrl(user.profile_image_url)
-        ? h(SafeImage, {
-            src: mediaUrl(user.profile_image_url),
-            alt: "",
-            width: 40,
-            height: 40,
-          })
-        : null,
+      h(Avatar, { user }),
       h(
         "div",
-        null,
-        h("strong", null, user.name || user.username || "Saved post"),
+        { className: "saved-identity" },
+        h("strong", null, displayName(user)),
         user.username ? h("span", null, "@" + user.username) : null,
       ),
       date && !isNaN(date.getTime())
@@ -266,42 +316,51 @@ export function renderTweets(
     root = createRoot(node);
     roots.set(node, root);
   }
-  root.render(
-    h(
-      "div",
-      {
-        onClick: (e) => {
-          const a = (e.target as HTMLElement).closest("a");
-          if (a) {
-            e.preventDefault();
-            const url = webUrl(a.href);
-            if (url) openLink(url);
-          }
-        },
-      },
-      ...cards.map((card, i) =>
-        h(
-          "section",
-          {
-            key: card.post.id,
-            className: i ? "direct-context" : "",
-            "aria-label":
-              card.relation === "quoted"
-                ? "Quoted post"
-                : card.relation === "replied_to"
-                  ? "Replying to"
-                  : "Bookmarked post",
+  // The surrounding panel manages focus and scroll synchronously. Commit the
+  // React island before it positions the reader or a matched evidence passage.
+  flushSync(() =>
+    root.render(
+      h(
+        "div",
+        {
+          onClick: (e) => {
+            const a = (e.target as HTMLElement).closest("a");
+            if (a) {
+              e.preventDefault();
+              const url = webUrl(a.href);
+              if (url) openLink(url);
+            }
           },
-          i
-            ? h(
-                "h3",
-                null,
-                card.relation === "quoted" ? "Quoted post" : "Replying to",
-              )
-            : null,
-          h(SavedTweet, { card }),
+        },
+        ...cards.map((card, i) =>
+          h(
+            "section",
+            {
+              key: card.post.id,
+              className: i ? "direct-context" : "",
+              "aria-label":
+                card.relation === "quoted"
+                  ? "Quoted post"
+                  : card.relation === "replied_to"
+                    ? "Replying to"
+                    : "Bookmarked post",
+            },
+            i
+              ? h(
+                  "h3",
+                  null,
+                  card.relation === "quoted" ? "Quoted post" : "Replying to",
+                )
+              : null,
+            h(SavedTweet, { card }),
+          ),
         ),
       ),
     ),
   );
+}
+
+export function clearTweets(node: HTMLElement) {
+  const root = roots.get(node);
+  if (root) flushSync(() => root.render(null));
 }

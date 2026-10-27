@@ -7,13 +7,19 @@
     <style>
       /*TWEET_CSS*/
       :root {
-        font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+        font-family: var(
+          --font-sans,
+          -apple-system,
+          BlinkMacSystemFont,
+          system-ui,
+          sans-serif
+        );
         --surface: var(--color-background-primary, #fff);
         --soft: var(--color-background-secondary, #f5f5f3);
         --ink: var(--color-text-primary, #242424);
         --muted: var(--color-text-secondary, #666662);
         --line: var(--color-border-primary, #e2e2de);
-        --accent: #276447;
+        --accent: var(--color-text-primary, #242424);
         --danger: #ac302c;
         color: var(--ink);
         background: var(--surface);
@@ -27,7 +33,7 @@
         --ink: var(--color-text-primary, #eeeeea);
         --muted: var(--color-text-secondary, #b0b2ab);
         --line: var(--color-border-primary, #44463f);
-        --accent: #a0d7b5;
+        --accent: var(--color-text-primary, #eeeeea);
         --danger: #ffaaa3;
         color-scheme: dark;
       }
@@ -38,7 +44,7 @@
           --ink: var(--color-text-primary, #eeeeea);
           --muted: var(--color-text-secondary, #b0b2ab);
           --line: var(--color-border-primary, #44463f);
-          --accent: #a0d7b5;
+          --accent: var(--color-text-primary, #eeeeea);
           --danger: #ffaaa3;
           color-scheme: dark;
         }
@@ -46,16 +52,47 @@
       * {
         box-sizing: border-box;
       }
+      html {
+        scrollbar-gutter: stable;
+        scroll-padding-top: 80px;
+        scroll-padding-bottom: max(100px, var(--host-bottom, 0px));
+      }
       body {
         margin: 0;
       }
+      html:has(dialog[open]) {
+        overflow: hidden;
+      }
+      .icon {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 auto;
+      }
+      .icon-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+      }
+      .icon-only {
+        width: 34px;
+        height: 34px;
+        padding: 7px;
+      }
+
       [hidden] {
         display: none !important;
       }
       main {
-        max-width: 960px;
+        max-width: 808px;
         margin: auto;
-        padding: 28px;
+        padding: max(0px, var(--host-top, 0px))
+          max(24px, var(--host-right, 0px))
+          calc(
+            max(100px, var(--host-bottom, 0px)) + 24px +
+              var(--feedback-space, 0px)
+          )
+          max(24px, var(--host-left, 0px));
       }
       button,
       input,
@@ -72,13 +109,23 @@
         cursor: pointer;
         border: 1px solid var(--line);
         background: var(--surface);
-        border-radius: 9px;
-        padding: 9px 13px;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 13px;
+        min-height: 34px;
         line-height: 1.3;
       }
-      button:hover,
-      .bookmark:hover {
-        background: var(--soft);
+      @media (hover: hover) {
+        button:hover,
+        .bookmark:hover {
+          background: var(--soft);
+        }
+      }
+      button:active {
+        opacity: 0.75;
+      }
+      button[aria-busy="true"] {
+        cursor: progress;
       }
       :is(button, input, select, summary, a, [tabindex]):focus-visible {
         outline: 2px solid var(--accent);
@@ -113,7 +160,7 @@
         padding: 7px 0;
         font-size: 13px;
       }
-      header,
+      .app-header,
       .actions,
       .search,
       .toolbar,
@@ -123,13 +170,20 @@
         align-items: center;
         gap: 10px;
       }
-      header {
+      .app-header {
         justify-content: space-between;
-        margin-bottom: 26px;
+        min-height: 76px;
+        padding: 18px 0;
+        gap: 16px;
+      }
+      .app-header .actions {
+        flex-shrink: 0;
+        gap: 6px;
       }
       h1 {
-        font-size: 24px;
-        letter-spacing: -0.6px;
+        font-size: 20px;
+        font-weight: 650;
+        letter-spacing: -0.5px;
         margin: 0;
       }
       h2 {
@@ -158,9 +212,11 @@
       }
       .search {
         border: 1px solid var(--line);
-        border-radius: 13px;
-        padding: 5px;
+        border-radius: 10px;
+        padding: 4px 4px 4px 12px;
         background: var(--soft);
+        gap: 5px;
+        min-height: 44px;
       }
       .search:focus-within {
         border-color: var(--accent);
@@ -171,9 +227,9 @@
         flex: 1;
         border: 0;
         border-radius: 8px;
-        padding: 10px;
+        padding: 6px;
         background: transparent;
-        font-size: 16px;
+        font-size: 15px;
       }
       input[type="search"]:focus-visible {
         outline-offset: -2px;
@@ -183,7 +239,9 @@
       }
       .toolbar {
         justify-content: space-between;
-        margin: 12px 0;
+        min-height: 48px;
+        margin: 6px 0 8px;
+        gap: 12px;
       }
       .toolbar > .actions {
         gap: 5px;
@@ -193,19 +251,22 @@
       }
       .view-switch {
         display: flex;
-        border: 1px solid var(--line);
-        border-radius: 9px;
+        border: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+        background: var(--soft);
+        border-radius: 8px;
         padding: 2px;
         flex-shrink: 0;
       }
       .view-switch button {
         border: 0;
-        padding: 6px 10px;
+        padding: 4px 10px;
+        min-height: 28px;
         background: transparent;
-        border-radius: 6px;
+        border-radius: 5px;
       }
       .view-switch button[aria-pressed="true"] {
-        background: var(--soft);
+        background: var(--surface);
+        box-shadow: 0 1px 3px #00000014;
         font-weight: 600;
       }
       #filters {
@@ -238,7 +299,7 @@
         border-radius: 20px;
       }
       #progress {
-        margin: 18px 0 14px;
+        margin: 0;
         padding: 13px 15px;
         background: var(--soft);
         border-radius: 11px;
@@ -272,7 +333,18 @@
         color: var(--danger);
       }
       #results {
-        margin-top: 12px;
+        margin-top: 4px;
+      }
+      #results:empty[aria-busy="true"] {
+        min-height: 380px;
+      }
+      #results:empty[aria-busy="true"]::before {
+        content: "Loading your library…";
+        display: block;
+        padding: 60px 16px;
+        text-align: center;
+        color: var(--muted);
+        font-size: 14px;
       }
       .bookmark {
         display: block;
@@ -281,28 +353,67 @@
         border: 0;
         border-bottom: 1px solid var(--line);
         border-radius: 0;
-        padding: 20px 6px;
-        content-visibility: auto;
-        contain-intrinsic-size: auto 150px;
+        padding: 20px 0;
+        min-height: 100px;
         overflow-wrap: anywhere;
       }
       .bookmark .body {
-        white-space: pre-wrap;
+        white-space: normal;
         display: -webkit-box;
         -webkit-line-clamp: 3;
         -webkit-box-orient: vertical;
         overflow: hidden;
-        line-height: 1.6;
-        margin: 9px 0;
+        line-height: 1.55;
+        font-size: 15px;
+        margin: 10px 0 0;
       }
       .row-meta {
         justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 5px 12px;
+        flex-wrap: nowrap;
+        gap: 12px;
+      }
+      .row-identity {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 9px;
+      }
+      .row-avatar {
+        position: relative;
+        width: 28px;
+        height: 28px;
+        flex: 0 0 28px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--soft);
+        color: var(--muted);
+        overflow: hidden;
+        font-size: 12px;
+      }
+      .row-avatar img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
       }
       .author {
         font-weight: 600;
         font-size: 13px;
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .row-date {
+        color: var(--muted);
+        font-weight: 400;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .row-meta > .type {
+        flex-shrink: 0;
       }
       .type {
         font-size: 12px;
@@ -315,6 +426,9 @@
         gap: 6px 12px;
         color: var(--muted);
         font-size: 12px;
+      }
+      .row-footer:not(:empty) {
+        margin-top: 9px;
       }
       .attention {
         color: var(--danger);
@@ -340,65 +454,175 @@
         overflow: hidden;
         margin-top: 3px;
       }
-      .bookmark img {
+      .preview-slot {
         width: 100%;
-        height: auto;
         aspect-ratio: 3 / 2;
+        position: relative;
+        display: grid;
+        place-items: center;
+        background: var(--soft);
+        border-radius: 9px;
+        overflow: hidden;
+        margin-bottom: 16px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .preview-slot > img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
         object-fit: cover;
-        border-radius: 8px;
-        margin-bottom: 12px;
       }
       .gallery {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
-        align-items: start;
+        align-items: stretch;
         gap: 14px;
       }
       .gallery .bookmark {
-        padding: 18px;
+        padding: 16px;
         border: 1px solid var(--line);
-        border-radius: 13px;
-        contain-intrinsic-size: auto 220px;
+        border-radius: 12px;
+        align-self: stretch;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+      }
+      .gallery .preview-slot {
+        flex-shrink: 0;
+      }
+      .gallery .row-date {
+        display: none;
       }
       .gallery .body {
         -webkit-line-clamp: 6;
       }
       #detail {
-        max-width: 70ch;
-        margin: auto;
+        min-width: 0;
       }
+      .reader-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 44px;
+        margin-bottom: 24px;
+      }
+      #back {
+        margin-left: -9px;
+      }
+      .reader-toolbar .actions {
+        gap: 8px;
+        flex-wrap: nowrap;
+      }
+      .reader-toolbar a {
+        text-decoration: none;
+        white-space: nowrap;
+        font-size: 13px;
+        padding: 8px;
+        border-radius: 8px;
+      }
+      .reader-toolbar a:hover {
+        background: var(--soft);
+      }
+
       .saved-tweet {
         max-width: 100%;
-        margin: 12px 0;
-        --tweet-body-font-size: 17px;
-        --tweet-body-line-height: 1.6;
+        min-width: 0;
+        margin: 0;
+        border: 0;
+        border-radius: 0;
+        overflow: visible;
+        color: var(--ink);
+        background: transparent;
+        font-family: inherit;
+        --tweet-bg-color: transparent;
+        --tweet-bg-color-hover: transparent;
+        --tweet-border: 1px solid var(--line);
+        --tweet-font-color: var(--ink);
+        --tweet-body-font-size: 16px;
+        --tweet-body-line-height: 1.65;
+        --tweet-body-margin: 0;
+      }
+      .saved-tweet > article {
+        padding: 0;
+      }
+      .saved-tweet:hover {
+        background: transparent;
+      }
+      .saved-tweet a:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+      }
+      .saved-avatar {
+        width: 36px;
+        height: 36px;
+        flex: 0 0 36px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background: var(--soft);
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--muted);
       }
       .saved-author {
         display: flex;
         align-items: center;
         gap: 10px;
-        margin-bottom: 16px;
+        margin-bottom: 18px;
       }
       .saved-author img {
         border-radius: 50%;
       }
-      .saved-author span {
+      .saved-identity {
+        min-width: 0;
+        flex: 1;
+      }
+      .saved-identity strong {
+        display: block;
+        font-size: 14px;
+        overflow-wrap: anywhere;
+      }
+      .saved-identity span {
         display: block;
         color: var(--muted);
-        font-size: 14px;
+        font-size: 13px;
+        overflow-wrap: anywhere;
       }
       .saved-author time {
         margin-left: auto;
         color: var(--muted);
-        font-size: 13px;
+        font-size: 12px;
+        flex-shrink: 0;
+      }
+      .saved-video-frame {
+        position: relative;
+        width: 100%;
+        max-height: min(52svh, 440px);
+        border-radius: 12px;
+        margin-top: 16px;
+        overflow: hidden;
+        background: #111;
+        color: #eee;
+        display: grid;
+        place-items: center;
       }
       .saved-video {
+        position: absolute;
+        inset: 0;
         display: block;
         width: 100%;
-        max-height: 520px;
-        border-radius: 12px;
-        margin-top: 14px;
-        background: #111;
+        height: 100%;
+        object-fit: contain;
+      }
+      .saved-video-frame .media-unavailable {
+        color: #ddd;
+        text-align: center;
+        padding: 24px;
       }
       .saved-article p {
         white-space: pre-wrap;
@@ -410,13 +634,20 @@
         font-size: 14px;
         color: var(--muted);
       }
+      .image-unavailable {
+        display: grid;
+        place-items: center;
+        text-align: center;
+        background: var(--soft);
+        padding: 24px;
+      }
       .direct-context {
-        margin-left: 24px;
-        padding-left: 16px;
+        margin: 28px 0 0 0;
+        padding-left: 20px;
         border-left: 2px solid var(--line);
       }
       .direct-context h3 {
-        margin: 22px 0 0;
+        margin: 0 0 16px;
         font-size: 14px;
       }
       #detail-heading {
@@ -424,15 +655,15 @@
         font-weight: 600;
         margin-top: 26px;
       }
-      .detail-body,
       .evidence-text {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
         line-height: 1.7;
       }
       .detail-body {
-        font-size: 17px;
-        margin: 16px 0 22px;
+        font-size: 16px;
+        margin: 0 0 28px;
+        overflow-wrap: anywhere;
       }
       #detail > .actions {
         margin-bottom: 28px;
@@ -514,17 +745,23 @@
       }
       dialog {
         width: min(580px, calc(100vw - 28px));
-        max-height: 85vh;
+        max-height: calc(
+          100svh - max(100px, var(--host-bottom, 0px)) -
+            max(24px, var(--host-top, 0px))
+        );
+        margin-block: auto;
+        bottom: max(60px, var(--host-bottom, 0px));
         overflow: auto;
         overscroll-behavior: contain;
         padding: 24px;
         border: 1px solid var(--line);
-        border-radius: 18px;
+        border-radius: 14px;
+        box-shadow: 0 16px 60px #00000026;
         color: inherit;
         background: var(--surface);
       }
       dialog::backdrop {
-        background: #0006;
+        background: #0003;
       }
       .dialog-header {
         display: flex;
@@ -593,6 +830,68 @@
       #count {
         font-variant-numeric: tabular-nums;
       }
+      main:has(#notice:not([hidden])),
+      main:has(#error:not([hidden])),
+      main:has(#refresh-content:not([hidden])),
+      main:has(#progress:not([hidden])) {
+        --feedback-space: 160px;
+      }
+      #feedback-dock {
+        position: fixed;
+        z-index: 5;
+        bottom: calc(max(80px, var(--host-bottom, 0px)) + 16px);
+        left: max(16px, var(--host-left, 0px));
+        right: max(16px, var(--host-right, 0px));
+        width: min(760px, calc(100% - 32px));
+        margin-inline: auto;
+        max-height: min(160px, 35svh);
+        overflow: auto;
+        overscroll-behavior: contain;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: 0 6px 24px #00000014;
+        padding: 8px 40px 8px 14px;
+      }
+      #feedback-dock:has(#notice[hidden]):has(#error[hidden]):has(
+          #refresh-content[hidden]
+        ):has(#progress[hidden]) {
+        display: none;
+      }
+      #feedback-dock .feedback {
+        margin: 0;
+        padding: 6px 0;
+        border: 0;
+      }
+      #dismiss-feedback {
+        position: absolute;
+        right: 5px;
+        top: 5px;
+      }
+      #progress {
+        font-variant-numeric: tabular-nums;
+        padding: 5px 0;
+        background: transparent;
+        border-radius: 0;
+      }
+      #feedback-dock:has(#progress:not([hidden])):has(#error[hidden]):has(
+          #notice[hidden]
+        ):has(#refresh-content[hidden])
+        #dismiss-feedback {
+        display: none;
+      }
+      #feedback-dock:has(#progress:not([hidden])) {
+        padding-right: 14px;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          transition: none !important;
+          scroll-behavior: auto !important;
+        }
+      }
+
       .sr-only {
         position: absolute;
         width: 1px;
@@ -617,21 +916,22 @@
       }
       @media (max-width: 520px) {
         main {
-          padding: 20px 16px;
+          padding-left: max(16px, var(--host-left, 0px));
+          padding-right: max(16px, var(--host-right, 0px));
         }
-        header {
-          align-items: flex-start;
+        .app-header {
           gap: 12px;
-          margin-bottom: 22px;
+          min-height: 68px;
+          padding-block: 16px;
         }
         h1 {
-          font-size: 21px;
+          font-size: 18px;
         }
-        header .actions {
+        .app-header .actions {
           gap: 3px;
           flex-wrap: nowrap;
         }
-        header button {
+        .app-header button {
           padding: 7px;
           font-size: 13px;
         }
@@ -651,8 +951,55 @@
         dialog {
           padding: 20px;
         }
-        .detail-body {
-          font-size: 16px;
+        .row-date {
+          display: none;
+        }
+        .saved-author {
+          gap: 9px;
+        }
+        .saved-author time {
+          font-size: 11px;
+        }
+        .reader-toolbar {
+          gap: 6px;
+          margin-bottom: 20px;
+        }
+        .reader-toolbar .actions {
+          gap: 2px;
+        }
+        .reader-toolbar button {
+          padding-inline: 9px;
+        }
+        .toolbar > .actions {
+          gap: 2px;
+        }
+        .toolbar {
+          gap: 6px;
+        }
+        #count {
+          font-size: 12px;
+        }
+        .view-switch button {
+          padding-inline: 8px;
+        }
+        #feedback-dock {
+          padding-left: 12px;
+        }
+        .direct-context {
+          padding-left: 14px;
+        }
+      }
+      @media (max-width: 360px) {
+        .reader-toolbar {
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .reader-toolbar .actions {
+          width: 100%;
+          justify-content: space-between;
+        }
+        #use {
+          white-space: nowrap;
         }
       }
     </style>
@@ -660,17 +1007,64 @@
   <body>
     <a href="#main" class="skip">Skip to library</a>
     <main id="main" tabindex="-1">
-      <header>
+      <header class="app-header">
         <h1>Bookmark Library</h1>
         <div class="actions">
           <button id="sync" class="quiet">Sync</button
-          ><button id="settings" class="quiet">Settings</button>
+          ><button
+            id="settings"
+            class="quiet icon-only"
+            aria-label="Settings"
+            title="Settings"
+          >
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path
+                d="m9 3-.7 2.2-2 .9-2.2-.5-2 3.4 1.5 1.7v2.6L2 15l2 3.4 2.3-.5 2 .9L9 21h4l.7-2.2 2-.9 2.3.5 2-3.4-1.6-1.7v-2.6L20 9l-2-3.4-2.3.5-2-.9L13 3Z"
+              />
+              <circle cx="11" cy="12" r="3" />
+            </svg>
+          </button>
         </div>
       </header>
-      <div id="error" class="feedback error" role="alert" hidden></div>
-      <div id="notice" class="feedback" role="status" hidden></div>
+      <aside id="feedback-dock" aria-label="Library updates">
+        <div id="error" class="feedback error" role="alert" hidden></div>
+        <div id="notice" class="feedback" role="status" hidden></div>
+        <button
+          id="dismiss-feedback"
+          class="quiet icon-only"
+          aria-label="Dismiss notification"
+        >
+          ×
+        </button>
+        <div id="progress" hidden>
+          <span id="progress-text"></span>
+          <div class="actions">
+            <button id="issues">Review</button
+            ><button id="manage-runs">Manage</button
+            ><button id="pause">Pause</button>
+          </div>
+        </div>
+      </aside>
       <section id="list" aria-label="Saved bookmarks">
-        <form id="search-form" class="search">
+        <form id="search-form" class="search" role="search">
+          <svg
+            class="icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <circle cx="10.5" cy="10.5" r="6.5" />
+            <path d="m16 16 4.5 4.5" />
+          </svg>
           <input
             id="query"
             name="query"
@@ -679,9 +1073,7 @@
             aria-label="Search saved bookmarks"
             autocomplete="off"
           />
-          <button id="search-submit" type="submit" class="primary">
-            Search
-          </button>
+          <button id="search-submit" type="submit" class="quiet">Search</button>
         </form>
         <div class="toolbar">
           <div class="actions">
@@ -718,32 +1110,37 @@
           </div>
         </div>
         <div id="filter-chips"></div>
-        <div id="progress" hidden>
-          <span id="progress-text"></span>
-          <div class="actions">
-            <button id="issues">Review</button
-            ><button id="manage-runs">Manage</button
-            ><button id="pause">Pause</button>
-          </div>
-        </div>
-        <div id="results" aria-busy="false"></div>
+        <div id="results" aria-busy="true"></div>
         <div id="empty" hidden></div>
         <footer><button id="more" hidden>Load more</button></footer>
       </section>
       <section id="detail" hidden aria-labelledby="detail-heading">
-        <button id="back" class="quiet">← Library</button>
+        <nav class="reader-toolbar" aria-label="Bookmark">
+          <button id="back" class="quiet icon-button">
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              aria-hidden="true"
+            >
+              <path d="m14 6-6 6 6 6" /></svg
+            >Library
+          </button>
+          <div class="actions">
+            <button id="use" class="primary">Use in ChatGPT</button
+            ><a
+              id="source"
+              href="https://x.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Open on X ↗</a
+            >
+          </div>
+        </nav>
         <h2 id="detail-heading" tabindex="-1"></h2>
         <div id="detail-text" class="detail-body"></div>
-        <div class="actions">
-          <button id="use" class="primary">Use in ChatGPT</button
-          ><a
-            id="source"
-            href="https://x.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Open on X ↗</a
-          >
-        </div>
         <div id="evidence"></div>
         <details id="source-details">
           <summary>Source details &amp; engagement</summary>

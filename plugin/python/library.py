@@ -29,6 +29,24 @@ def post_card(raw, relation=None):
     return {'post': post, 'user': user, 'media': own_media(raw), 'relation': relation}
 
 
+def row_presentation(raw):
+    card = post_card(raw)
+    post, user, media = card['post'], card['user'], card['media']
+    note = post.get('note_tweet') or post
+    text = __import__('pipeline').post_text(post)
+    # Only replace captured URL entities. Stored source text and search evidence
+    # remain untouched, and unknown links remain readable.
+    for entity in note.get('entities', {}).get('urls', []):
+        token = entity.get('url')
+        if not token:
+            continue
+        expanded = entity.get('expanded_url', '')
+        attached = bool(media) and re.match(r'https://(?:twitter|x)\.com/[^/]+/status/' + re.escape(str(post.get('id', ''))) + r'/(?:photo|video)/', expanded)
+        text = text.replace(token, '' if attached else entity.get('display_url') or expanded or token)
+    preview = next((m.get('preview_image_url') or m.get('url') for m in media if m.get('preview_image_url') or m.get('url')), None)
+    return {'name': user.get('name'), 'avatar': user.get('profile_image_url'), 'created_at': post.get('created_at'), 'text': text.strip(), 'preview': preview}
+
+
 def cards(c, raw, item):
     result = [post_card(raw)]
     for ref in raw['post'].get('referenced_tweets', []):
@@ -72,6 +90,7 @@ def browse(args):
             entry["metrics"] = json.loads(entry["metrics"]) if entry["metrics"] else None
             entry["has_media"] = bool(own_media(raw))
             entry["content_types"] = content_types(raw)
+            entry["presentation"] = row_presentation(raw)
             result.append(entry)
     return {"items": result, "total": total, "next_offset": offset + limit if len(rows) > limit else None}
 

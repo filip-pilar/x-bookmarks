@@ -1,11 +1,11 @@
-import { renderTweets, type PostCard } from "./tweet.js";
+import { clearTweets, renderTweets, type PostCard } from "./tweet.js";
 import {
   App,
   applyDocumentTheme,
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const app = new App({ name: "Bookmark Library", version: "0.7.2" }),
+const app = new App({ name: "Bookmark Library", version: "0.7.3" }),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
 const input = (id: string) => $(id) as HTMLInputElement;
@@ -36,6 +36,13 @@ type Row = {
   kind?: string;
   evidence?: Metadata;
   evidence_id?: string;
+  presentation?: {
+    name?: string;
+    avatar?: string;
+    created_at?: string;
+    text?: string;
+    preview?: string;
+  };
 };
 type Stage = {
   id: string;
@@ -657,6 +664,16 @@ async function load(reset = true) {
   }
 }
 const thumbnailCache = new Map<string, string | null>();
+function previewUrl(value?: string) {
+  try {
+    const url = new URL(value || "");
+    return url.protocol === "https:" && url.hostname === "pbs.twimg.com"
+      ? url.href
+      : "";
+  } catch {
+    return "";
+  }
+}
 const thumbnailObserver = new IntersectionObserver(
   (entries) => {
     for (const entry of entries)
@@ -669,26 +686,48 @@ const thumbnailObserver = new IntersectionObserver(
 );
 async function thumbnail(card: HTMLElement) {
   const id = card.dataset.id!;
-  try {
-    if (!thumbnailCache.has(id)) {
-      const r = await call("thumbnail", { item: id });
-      thumbnailCache.set(id, r.image || null);
-      if (thumbnailCache.size > 64)
-        thumbnailCache.delete(thumbnailCache.keys().next().value!);
+  const slot = card.querySelector<HTMLElement>(".preview-slot");
+  if (!slot) return;
+  const unavailable = () => {
+    const label = slot.querySelector("span");
+    if (label) label.textContent = "Preview unavailable";
+  };
+  const show = (src: string, fallback?: () => void) => {
+    if (!slot.isConnected || !gallery) return;
+    const im = document.createElement("img");
+    im.src = src;
+    im.alt = "";
+    im.width = 480;
+    im.height = 320;
+    im.loading = "lazy";
+    im.referrerPolicy = "no-referrer";
+    im.onerror = () => {
+      im.remove();
+      if (fallback) fallback();
+      else unavailable();
+    };
+    slot.append(im);
+  };
+  const cached = async () => {
+    try {
+      if (!thumbnailCache.has(id)) {
+        const r = await call("thumbnail", { item: id });
+        thumbnailCache.set(id, r.image || null);
+        if (thumbnailCache.size > 64)
+          thumbnailCache.delete(thumbnailCache.keys().next().value!);
+      }
+      const image = thumbnailCache.get(id);
+      if (image && slot.isConnected && gallery && !slot.querySelector("img"))
+        show(image);
+      else if (!image) unavailable();
+    } catch {
+      unavailable();
     }
-    const image = thumbnailCache.get(id);
-    if (image && card.isConnected && gallery && !card.querySelector("img")) {
-      const im = document.createElement("img");
-      im.src = image;
-      im.alt = "";
-      im.width = 480;
-      im.height = 320;
-      im.loading = "lazy";
-      card.prepend(im);
-    }
-  } catch {
-    /* Cached previews are optional; the text card stays usable. */
-  }
+  };
+  if (slot.querySelector("img")) return;
+  const remote = previewUrl(slot.dataset.preview);
+  if (remote) show(remote, () => void cached());
+  else await cached();
 }
 function cardHtml(r: Row) {
   const stateText =
@@ -700,7 +739,24 @@ function cardHtml(r: Row) {
   const kind =
       r.content_types?.join(" · ") || (r.kind ? evidenceLabel(r.kind) : "Post"),
     time = r.evidence ? timeRange(r.evidence) : "";
-  return `<span class="row-meta"><span class="author">${esc(r.author ? "@" + r.author : "Saved post")}</span><span class="type">${esc(kind)}</span></span><span class="body">${esc((r.text || r.title || r.excerpt || "Media bookmark").replace(/\s+/g, " ").trim())}</span><span class="row-footer">${r.folders?.length ? `<span>${esc(r.folders.map((f) => f.name).join(" · "))}</span>` : ""}${stateText ? `<span>${esc(stateText)}</span>` : ""}</span>${searching ? `<span class="match"><strong>Matched ${esc(evidenceLabel(r.kind).toLowerCase())}${time ? " · " + esc(time) : ""}</strong>${r.excerpt ? `<span class="match-snippet">${esc(r.excerpt)}</span>` : '<span class="match-snippet">Similar saved media. Open to read the available evidence.</span>'}</span>` : ""}`;
+  const p = r.presentation,
+    author =
+      p?.name && /[\p{L}\p{N}\p{Emoji_Presentation}]/u.test(p.name)
+        ? p.name
+        : r.author
+          ? "@" + r.author
+          : "Saved post",
+    avatar = previewUrl(p?.avatar),
+    created = p?.created_at ? new Date(p.created_at) : null,
+    posted =
+      created && !isNaN(created.getTime())
+        ? created.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          })
+        : "",
+    text = p?.text ?? r.text ?? r.title ?? r.excerpt ?? "Media bookmark";
+  return `${gallery && r.has_media ? `<span class="preview-slot" data-preview="${esc(previewUrl(p?.preview))}"><span>${esc(kind.replace("Post · ", ""))}</span></span>` : ""}<span class="row-meta"><span class="row-identity"><span class="row-avatar" aria-hidden="true">${esc(author.replace(/^@/, "").slice(0, 1).toUpperCase())}${avatar ? `<img src="${esc(avatar)}" width="28" height="28" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</span><span class="author" title="${esc(r.author ? author + " · @" + r.author : author)}">${esc(author)}</span>${posted ? `<time class="row-date" datetime="${esc(p?.created_at)}">${esc(posted)}</time>` : ""}</span><span class="type">${esc(kind.replace(/^Post · /, ""))}</span></span><span class="body">${esc(text.replace(/\s+/g, " ").trim() || "Media bookmark")}</span><span class="row-footer">${r.folders?.length ? `<span>${esc(r.folders.map((f) => f.name).join(" · "))}</span>` : ""}${stateText ? `<span>${esc(stateText)}</span>` : ""}</span>${searching ? `<span class="match"><strong>Matched ${esc(evidenceLabel(r.kind).toLowerCase())}${time ? " · " + esc(time) : ""}</strong>${r.excerpt ? `<span class="match-snippet">${esc(r.excerpt)}</span>` : '<span class="match-snippet">Similar saved media. Open to read the available evidence.</span>'}</span>` : ""}`;
 }
 function renderList() {
   const list = $("results");
@@ -729,6 +785,8 @@ function renderList() {
     if (card.dataset.render !== signature) {
       card.innerHTML = html;
       card.dataset.render = signature;
+      const avatar = card.querySelector<HTMLImageElement>(".row-avatar img");
+      if (avatar) avatar.onerror = () => avatar.remove();
     }
     card.onclick = () => void act(() => openItem(r.id, r.evidence_id));
     if (list.children[i] !== card)
@@ -747,8 +805,7 @@ function renderList() {
   $("more").hidden = next === null;
 }
 async function openItem(id: string, evidenceId?: string) {
-  const request = ++detailEpoch,
-    position = window.scrollY;
+  const request = ++detailEpoch;
   const card = Array.from($("results").children).find(
     (e) => (e as HTMLElement).dataset.id === id,
   );
@@ -757,7 +814,7 @@ async function openItem(id: string, evidenceId?: string) {
   try {
     const detail = await call("detail", { item: id, evidence_id: evidenceId });
     if (request !== detailEpoch) return;
-    scroll = position;
+    scroll = window.scrollY;
     returnItem = id;
     selected = detail;
     currentMatch = evidenceId || "";
@@ -1034,6 +1091,7 @@ action("more", () => load(false));
 $("back").onclick = () => {
   detailEpoch++;
   $("detail").hidden = true;
+  clearTweets($("detail-text"));
   $("list").hidden = false;
   selected = undefined;
   const card = Array.from($("results").children).find(
@@ -1150,6 +1208,12 @@ refreshButton.className = "small-link";
 refreshButton.textContent = "Saved content updated · Refresh";
 refreshButton.hidden = true;
 $("notice").after(refreshButton);
+$("dismiss-feedback").onclick = () => {
+  feedback("error", "", $("main"));
+  feedback("notice", "", $("main"));
+  refreshButton.hidden = true;
+  (selected ? $("back") : $("query")).focus({ preventScroll: true });
+};
 action("refresh-content", async () => {
   if (selected) {
     await refreshDetail(selected.id, true);
@@ -1162,6 +1226,12 @@ function theme(ctx: ReturnType<App["getHostContext"]>) {
     document.documentElement.dataset.theme = ctx.theme;
   }
   if (ctx?.styles?.variables) applyHostStyleVariables(ctx.styles.variables);
+  if (ctx?.safeAreaInsets)
+    for (const edge of ["top", "right", "bottom", "left"] as const)
+      document.documentElement.style.setProperty(
+        `--host-${edge}`,
+        `${Math.max(0, ctx.safeAreaInsets[edge] || 0)}px`,
+      );
 }
 app.addEventListener("hostcontextchanged", theme);
 app.ontoolresult = (r) => {
@@ -1175,8 +1245,7 @@ app.ontoolresult = (r) => {
 await app.connect();
 theme(app.getHostContext());
 await act(async () => {
-  await refresh();
-  await load();
+  await Promise.all([refresh(), load()]);
 });
 setInterval(() => {
   if (!document.hidden && !refreshing) {

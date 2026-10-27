@@ -75,3 +75,9 @@ Native processing preflight and the resumable `verify-description.py` are separa
 See [verification and limits](KNOWN_ISSUES.md). No unit tests are used. Existing static/build checks and controlled integration rehearsals provide release evidence. Publication and installation are separate actions from implementing or packaging this design.
 
 A `sample` sync imports at most 10 recent bookmarks from one API page, with full processing of their allowed sources. It does not scan folders, recurse through references or mark the full inventory complete. A sample is separate from setup/update verification and requires explicit authorization.
+
+## Panel layout
+
+The library and rich reader share one content frame. The reader commits its React island before the surrounding panel restores focus or scroll position. Media slots use captured dimensions, with bounded video height and stable failure states. Gallery previews use allowlisted captured X image URLs with an optional local-cache fallback; previews do not become durable originals. Browse presentation labels are derived from captured entities without changing source text or embeddings.
+
+Host theme variables and safe-area insets apply to the panel, dialogs and notification dock. The bottom clearance also accommodates hosts that do not report their floating composer inset. Notifications and processing updates stay outside the reading flow. The list keeps its DOM and scroll position during detail navigation; leaving the reader unmounts its player.

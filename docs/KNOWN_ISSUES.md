@@ -1,6 +1,14 @@
 # Verification and remaining limitations
 
-Version 0.7.2 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.3 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.3 layout and interaction
+
+The panel uses a shared content width for the library and reader, a compact reader toolbar, host theme variables and safe-area insets, and bottom clearance for the desktop composer. Videos and gallery previews reserve space before loading; media failure retains that space. React commits before reader focus/scroll positioning. Returning to the library restores its position, and leaving a post removes its media player. Progress and notifications no longer insert rows above the content.
+
+The list presents captured names, avatars, dates and readable URL labels. Gallery previews can load directly from the captured X media URL; this does not persist another original or make an X API request. Expired or unavailable previews retain a stable placeholder. Saved source text and evidence are unchanged.
+
+Browser rehearsals use a read-only copy of the ten-bookmark library, the actual MCP/backend and a substituted desktop host. Reader poster loading and notifications produced no recorded layout shifts. Checks cover narrow light/dark layouts, unavailable images/video, delayed detail responses, list return focus, gallery alignment and a simulated host bottom inset. These checks do not prove every desktop-host overlay or cached panel state; an already-open panel may need reopening after installation. No import, retry or enrichment is part of this UI update.
 
 ## Verified for 0.7.2 reader and source scope
 
