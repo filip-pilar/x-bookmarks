@@ -13,3 +13,5 @@
 
 - Markdown evidence rendering uses markdown-it and its dependencies (MIT). HTML execution and embedded media are disabled. License notices accompany the release.
 - The ChatGPT action uses the OpenAI logo path from `@openai/apps-sdk-ui` 0.2.2 (MIT), with its notice in `licenses/OpenAI-Apps-SDK-UI.txt`. The logo identifies the destination; the UI SDK is not bundled.
+
+- Accessible choice menus use Radix Select and its bundled positioning/focus/scroll dependencies (MIT). Their license notices are included in `licenses/`.

@@ -1,6 +1,12 @@
 # Verification and remaining limitations
 
-Version 0.7.4 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.5 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.5 controls
+
+Folder, sort, ChatGPT account and model use shared themed menus with selected-item checkmarks, keyboard navigation, typeahead and bounded scrolling. Menus inside Settings stay in the modal's top layer. Escape closes a menu before the dialog; closing Settings restores focus to its opener. Focus styling, close icons and busy indicators are shared. Account actions have quieter hierarchy, storage values use aligned rows, and empty-state guidance depends on the current account/filter state.
+
+The actual built panel and MCP Apps handshake were rehearsed with a copied library and controlled account/model responses. Checks covered open light/dark menus, 390-pixel layout, a 50-folder menu, typeahead/End/Enter, Escape/focus restoration, disabled sorting during search and failure rollback. A delayed refresh retained its exact button width while busy and brought its error into view below the sticky dialog header. Provider account changes were simulated; no account, billing or import operation was performed. The browser shell/composer were simulated, so an already-open desktop panel still needs reopening after installation.
 
 ## Verified for 0.7.4 panel polish
 

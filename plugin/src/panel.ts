@@ -1,4 +1,5 @@
 import { clearTweets, renderTweets, type PostCard } from "./tweet.js";
+import { Choice } from "./choice.js";
 import { renderMarkdown } from "./markdown.js";
 import {
   App,
@@ -6,11 +7,28 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const app = new App({ name: "Bookmark Library", version: "0.7.4" }),
+const app = new App({ name: "Bookmark Library", version: "0.7.5" }),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
 const input = (id: string) => $(id) as HTMLInputElement;
-const select = (id: string) => $(id) as HTMLSelectElement;
+const choices = new Map<string, Choice>([
+  ["folder", new Choice($("folder"), [{ value: "", label: "All folders" }])],
+  [
+    "sort",
+    new Choice($("sort"), [
+      { value: "", label: "Newest posts" },
+      { value: "like_count", label: "Most likes" },
+      { value: "impression_count", label: "Most impressions" },
+      { value: "bookmark_count", label: "Most bookmarks" },
+    ]),
+  ],
+  [
+    "chatgpt-account",
+    new Choice($("chatgpt-account"), [{ value: "", label: "Choose account" }]),
+  ],
+  ["model", new Choice($("model"), [{ value: "", label: "Choose a model" }])],
+]);
+const choice = (id: string) => choices.get(id)!;
 const dialog = (id: string) => $(id) as HTMLDialogElement;
 type Metadata = {
   url?: string;
@@ -183,6 +201,8 @@ function feedback(
       : root.querySelector<HTMLElement>(`[data-${type}]`) || $(type);
   target.textContent = text;
   target.hidden = !text;
+  if (text && type === "error" && root instanceof HTMLDialogElement)
+    target.scrollIntoView({ block: "nearest" });
 }
 async function call(
   name: string,
@@ -241,6 +261,7 @@ function showDialog(id: string) {
     "[data-error], [data-notice]",
   ))
     e.hidden = true;
+  for (const c of choices.values()) c.close();
   d.showModal();
 }
 async function openUrl(url: string) {
@@ -285,16 +306,7 @@ function options(
   values: { value: string; label: string }[],
   value: string,
 ) {
-  const el = select(id);
-  if (document.activeElement === el) return;
-  const html = values
-    .map((v) => `<option value="${esc(v.value)}">${esc(v.label)}</option>`)
-    .join("");
-  if (el.dataset.options !== html) {
-    el.innerHTML = html;
-    el.dataset.options = html;
-  }
-  el.value = value;
+  choice(id).setOptions(values, value);
 }
 const stageLabel = (kind: string) =>
   (
@@ -413,11 +425,14 @@ function renderRuns(s: State) {
   $("older-runs").hidden = !history.length;
 }
 function renderState(s: State) {
+  const accountChanged = state?.chatgpt.active !== s.chatgpt.active;
   const signature = JSON.stringify([s.total, s.last_processed, s.stage_counts]);
   if (librarySignature && librarySignature !== signature)
     $("refresh-content").hidden = false;
   librarySignature = signature;
   state = s;
+  for (const id of ["sync", "settings"])
+    ($(id) as HTMLButtonElement).disabled = false;
   const p = s.progress;
   $("progress").hidden = !(p.unfinished || p.unavailable || p.syncs);
   const parts = [`${number(s.searchable)} of ${count(s.total)} searchable`];
@@ -458,25 +473,36 @@ function renderState(s: State) {
   $("connect-chatgpt").hidden = s.chatgpt.connected && s.chatgpt.plan_enabled;
   $("disconnect-chatgpt").hidden = !s.chatgpt.accounts.length;
   $("load-models").hidden = !s.chatgpt.connected;
-  $("storage").textContent =
-    `Temporary media ${bytes(s.temporary_bytes)} / ${bytes(s.temporary_limit)}\nSaved evidence & index ${bytes(s.storage_bytes + s.index_bytes)}\nModels & runtime ${bytes(s.runtime_bytes)}`;
+  $("storage").innerHTML = [
+    [
+      "Temporary media",
+      `${bytes(s.temporary_bytes)} / ${bytes(s.temporary_limit)}`,
+    ],
+    ["Evidence & index", bytes(s.storage_bytes + s.index_bytes)],
+    ["Models & runtime", bytes(s.runtime_bytes)],
+  ]
+    .map(
+      ([label, value]) =>
+        `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`,
+    )
+    .join("");
   options(
     "chatgpt-account",
     [
-      { value: "", label: "Choose account" },
+      ...(s.chatgpt.accounts.length
+        ? []
+        : [{ value: "", label: "No connected account" }]),
       ...s.chatgpt.accounts.map((a) => ({ value: a.id, label: a.label })),
     ],
     s.chatgpt.active || "",
   );
-  if (
-    s.chatgpt.model &&
-    !Array.from(select("model").options).some(
-      (o) => o.value === s.chatgpt.model,
-    )
-  )
-    select("model").add(new Option(s.chatgpt.model, s.chatgpt.model));
-  if (document.activeElement !== select("model"))
-    select("model").value = s.chatgpt.model || "";
+  const model = choice("model");
+  const models = accountChanged
+    ? []
+    : model.options.filter((o) => o.value || !s.chatgpt.model);
+  if (s.chatgpt.model && !models.some((o) => o.value === s.chatgpt.model))
+    models.push({ value: s.chatgpt.model, label: s.chatgpt.model });
+  model.setOptions(models, s.chatgpt.model || "");
   $("browser-recovery").hidden = !s.stage_counts.some(
     (x) => x.state === "browser" && x.count,
   );
@@ -533,12 +559,9 @@ async function refresh() {
   const s = (await call("status")) as State;
   renderState(s);
   const signature = JSON.stringify(s.folder_inventory);
-  if (
-    signature !== folderSignature &&
-    document.activeElement !== select("folder")
-  ) {
+  if (signature !== folderSignature && !choice("folder").focused) {
     const c = await call("collections");
-    const value = select("folder").value;
+    const value = choice("folder").value;
     options(
       "folder",
       [
@@ -555,19 +578,21 @@ async function refresh() {
   }
 }
 function renderFilters() {
-  const folder = select("folder"),
-    sort = select("sort");
+  const folder = choice("folder"),
+    sort = choice("sort");
+  const activeFilters =
+    Number(!!folder.value) + Number(!!sort.value && !searching);
   const chips = [
     folder.value
-      ? `<button class="chip" data-clear="folder">${esc(folder.selectedOptions[0]?.textContent)} <span aria-hidden="true">×</span><span class="sr-only">Remove folder filter</span></button>`
+      ? `<button class="chip" data-clear="folder">${esc(folder.label)} <span aria-hidden="true">×</span><span class="sr-only">Remove folder filter</span></button>`
       : "",
     sort.value && !searching
-      ? `<button class="chip" data-clear="sort">${esc(sort.selectedOptions[0]?.textContent)} <span aria-hidden="true">×</span><span class="sr-only">Reset sort</span></button>`
+      ? `<button class="chip" data-clear="sort">${esc(sort.label)} <span aria-hidden="true">×</span><span class="sr-only">Reset sort</span></button>`
       : "",
   ].join("");
   $("filter-chips").innerHTML =
     chips +
-    (chips
+    (activeFilters > 1
       ? '<button class="small-link" id="clear-filters">Clear filters</button>'
       : "");
   for (const b of $("filter-chips").querySelectorAll<HTMLButtonElement>(
@@ -575,7 +600,7 @@ function renderFilters() {
   ))
     b.onclick = () =>
       void act(async () => {
-        if (b.dataset.clear) select(b.dataset.clear).value = "";
+        if (b.dataset.clear) choice(b.dataset.clear).value = "";
         else {
           folder.value = "";
           sort.value = "";
@@ -590,8 +615,8 @@ async function load(reset = true) {
   const query = input("query").value.trim(),
     key = JSON.stringify([
       query,
-      select("folder").value,
-      select("sort").value,
+      choice("folder").value,
+      choice("sort").value,
       reset ? 0 : next,
     ]);
   if (loading && key === loadingKey) return;
@@ -601,6 +626,7 @@ async function load(reset = true) {
   const request = ++epoch;
   $("results").setAttribute("aria-busy", "true");
   ($(reset ? "search-submit" : "more") as HTMLButtonElement).disabled = true;
+  $(reset ? "search-submit" : "more").setAttribute("aria-busy", "true");
   $("count").textContent = query ? "Searching…" : "Loading…";
   announce(query ? "Searching saved content" : "Loading bookmarks");
   try {
@@ -608,7 +634,7 @@ async function load(reset = true) {
     if (query) {
       result = await call("search", {
         query,
-        folder: select("folder").value || undefined,
+        folder: choice("folder").value || undefined,
         limit: 20,
       });
       while (result.pending) {
@@ -626,8 +652,8 @@ async function load(reset = true) {
     } else {
       result = await call("browse", {
         offset: reset ? 0 : next || 0,
-        folder: select("folder").value || undefined,
-        sort: select("sort").value || undefined,
+        folder: choice("folder").value || undefined,
+        sort: choice("sort").value || undefined,
       });
       if (request !== epoch) return;
       rows = reset
@@ -663,6 +689,8 @@ async function load(reset = true) {
       $("results").setAttribute("aria-busy", "false");
       ($("search-submit") as HTMLButtonElement).disabled = false;
       ($("more") as HTMLButtonElement).disabled = false;
+      $("search-submit").removeAttribute("aria-busy");
+      $("more").removeAttribute("aria-busy");
     }
   }
 }
@@ -801,10 +829,12 @@ function renderList() {
     : `${number(rows.length)} of ${number(scopedTotal)}`;
   $("empty").hidden = rows.length > 0;
   $("empty").textContent = searching
-    ? `No matches for “${loadedQuery}”. Try another phrase or clear the folder filter.`
+    ? `No matches for “${loadedQuery}”. Try another phrase${choice("folder").value ? " or clear the folder filter" : ""}.`
     : state?.total
       ? "No bookmarks in this folder yet."
-      : "Your saved ideas will appear here. Connect your accounts in Settings, then start an import.";
+      : state?.connected
+        ? "No bookmarks yet. Choose Sync to import."
+        : "Connect X in Settings to import your bookmarks.";
   $("more").hidden = next === null;
 }
 async function openItem(id: string, evidenceId?: string) {
@@ -1095,7 +1125,7 @@ for (const [id, value] of [
     renderList();
   };
 for (const id of ["folder", "sort"])
-  $(id).onchange = () => void act(() => load());
+  choice(id).onChange = () => void act(() => load());
 action("more", () => load(false));
 function showLibrary(restoreFocus = true) {
   detailEpoch++;
@@ -1146,21 +1176,36 @@ action("connect-chatgpt", async () => {
   const r = await call("connect_chatgpt");
   await openUrl(r.url);
 });
-$("chatgpt-account").onchange = () =>
-  void act(async () => {
-    if (select("chatgpt-account").value) {
-      await call("select_chatgpt", {
-        account: select("chatgpt-account").value,
-      });
-      await refresh();
-    }
-  });
+async function changeChatGPT(id: "chatgpt-account" | "model") {
+  const control = choice(id),
+    key = id === "model" ? "model" : "account";
+  const previous =
+    (id === "model" ? state?.chatgpt.model : state?.chatgpt.active) || "";
+  if (!control.value) {
+    control.value = previous;
+    return;
+  }
+  choice("chatgpt-account").disabled = true;
+  choice("model").disabled = true;
+  try {
+    await call("select_chatgpt", { [key]: control.value });
+    await refresh();
+  } catch (error) {
+    control.value = previous;
+    throw error;
+  } finally {
+    choice("chatgpt-account").disabled = false;
+    choice("model").disabled = false;
+  }
+}
+choice("chatgpt-account").onChange = () =>
+  void act(() => changeChatGPT("chatgpt-account"));
 action("load-models", async () => {
   const r = await call("chatgpt_models");
   options(
     "model",
     [
-      { value: "", label: "Choose a model" },
+      ...(r.models.length ? [] : [{ value: "", label: "No models available" }]),
       ...r.models.map((m: { id: string; name: string }) => ({
         value: m.id,
         label: m.name,
@@ -1173,13 +1218,7 @@ action("reconnect-chatgpt", async () => {
   const r = await call("connect_chatgpt");
   await openUrl(r.url);
 });
-$("model").onchange = () =>
-  void act(async () => {
-    if (select("model").value) {
-      await call("select_chatgpt", { model: select("model").value });
-      await refresh();
-    }
-  });
+choice("model").onChange = () => void act(() => changeChatGPT("model"));
 action("disconnect-chatgpt", async () => {
   const r = await call("disconnect_chatgpt");
   feedback(
@@ -1193,6 +1232,7 @@ action("disconnect-chatgpt", async () => {
 action("usage", () => openUrl("https://chatgpt.com/settings/usage"));
 action("export", async () => {
   const r = await call("export_diagnostics");
+  $("report").hidden = false;
   $("report").textContent = r.summary + "\nSaved locally: " + r.path;
 });
 action("browser-recovery", () => draft(recoveryPrompt));
@@ -1211,7 +1251,10 @@ action("confirm-clear", async () => {
   await refresh();
 });
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-close]"))
-  b.onclick = () => dialog(b.dataset.close!).close();
+  b.onclick = () => {
+    for (const c of choices.values()) c.close();
+    dialog(b.dataset.close!).close();
+  };
 const refreshButton = document.createElement("button");
 refreshButton.id = "refresh-content";
 refreshButton.className = "small-link";

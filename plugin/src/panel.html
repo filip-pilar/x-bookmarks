@@ -124,7 +124,7 @@
       }
       button,
       input,
-      select {
+      .choice-trigger {
         font: inherit;
         color: inherit;
       }
@@ -155,13 +155,13 @@
       button[aria-busy="true"] {
         cursor: progress;
       }
-      :is(button, input, select, summary, a, [tabindex]):focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 3px;
+      :is(button, input, summary, a, [tabindex]):focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+        outline-offset: 2px;
       }
       button:disabled {
         opacity: 0.55;
-        cursor: wait;
+        cursor: not-allowed;
       }
       .primary {
         background: var(--ink);
@@ -309,13 +309,6 @@
         font-size: 13px;
         display: block;
         margin-bottom: 7px;
-      }
-      select {
-        padding: 9px;
-        max-width: 100%;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--surface);
       }
       #filter-chips {
         padding-inline: 16px;
@@ -592,8 +585,8 @@
         background: transparent;
       }
       .saved-tweet a:focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 3px;
+        outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+        outline-offset: 2px;
       }
       .saved-avatar {
         width: 36px;
@@ -879,6 +872,7 @@
         margin: 6px 0 12px;
       }
       dialog {
+        scroll-padding-block: 64px 24px;
         width: min(580px, calc(100vw - 28px));
         max-height: calc(
           100svh - max(100px, var(--host-bottom, 0px)) -
@@ -925,7 +919,7 @@
       .setting label {
         margin: 14px 0 6px;
       }
-      .setting select {
+      .setting .choice {
         width: 100%;
       }
       .setting .actions {
@@ -1018,6 +1012,174 @@
       #feedback-dock:has(#progress:not([hidden])) {
         padding-right: 14px;
       }
+      .choice {
+        min-width: 0;
+      }
+      #filters > div {
+        flex: 1;
+        min-width: 0;
+      }
+      .choice-trigger {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        width: 100%;
+        min-height: 36px;
+        padding: 8px 11px;
+        font-size: 13px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+      .choice-trigger > span:first-child {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .choice-trigger[data-state="open"] {
+        background: var(--soft);
+      }
+      .choice-chevron {
+        display: flex;
+        color: var(--muted);
+        flex-shrink: 0;
+      }
+      .choice-menu {
+        z-index: 20;
+        min-width: var(--radix-select-trigger-width);
+        max-width: min(420px, calc(100vw - 32px));
+        max-height: min(280px, var(--radix-select-content-available-height));
+        overflow: hidden;
+        padding: 4px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--surface);
+        color: var(--ink);
+        box-shadow:
+          0 8px 28px #0002,
+          0 2px 6px #0000000a;
+        font: inherit;
+      }
+      .choice-options {
+        padding: 1px;
+      }
+      .choice-option {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        min-height: 34px;
+        padding: 7px 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        line-height: 1.4;
+        cursor: default;
+        user-select: none;
+        overflow-wrap: anywhere;
+      }
+      .choice-option[data-highlighted] {
+        background: var(--soft);
+        outline: none;
+      }
+      .choice-option[data-state="checked"] {
+        font-weight: 550;
+      }
+      .choice-check {
+        display: flex;
+        flex-shrink: 0;
+      }
+      .choice-scroll {
+        display: flex;
+        justify-content: center;
+        height: 22px;
+        color: var(--muted);
+      }
+      summary {
+        border-radius: 4px;
+      }
+      .account-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+      }
+      .danger-action {
+        color: var(--danger);
+        margin-left: auto;
+      }
+      .setting-heading label {
+        margin-block: 14px 6px;
+      }
+      .setting-heading button {
+        margin-top: 8px;
+      }
+      .storage-list {
+        margin: 14px 0;
+        display: grid;
+        gap: 10px;
+        font-size: 13px;
+      }
+      .storage-list > div {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .storage-list dt {
+        color: var(--muted);
+      }
+      .storage-list dd {
+        margin: 0;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+      .dialog-header {
+        position: sticky;
+        top: -24px;
+        z-index: 2;
+        background: var(--surface);
+        padding-block: 12px;
+        margin-top: -12px;
+      }
+      button:not(.bookmark)[aria-busy="true"] {
+        position: relative;
+        color: transparent;
+      }
+      button:not(.bookmark)[aria-busy="true"] > * {
+        visibility: hidden;
+      }
+      button:not(.bookmark)[aria-busy="true"]::after {
+        content: "";
+        position: absolute;
+        left: calc(50% - 6px);
+        top: calc(50% - 6px);
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid var(--ink);
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      button.primary[aria-busy="true"]::after {
+        border-color: var(--surface);
+        border-right-color: transparent;
+      }
+      .bookmark[aria-busy="true"] {
+        opacity: 0.65;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        button[aria-busy="true"]::after {
+          animation: none;
+        }
+      }
       @media (prefers-reduced-motion: reduce) {
         *,
         *::before,
@@ -1074,7 +1236,7 @@
           flex-direction: column;
           gap: 10px;
         }
-        #filters select {
+        #filters .choice {
           width: 100%;
         }
         #progress {
@@ -1084,6 +1246,7 @@
           grid-template-columns: 1fr;
         }
         dialog {
+          scroll-padding-block: 64px 24px;
           padding: 20px;
         }
         .row-date {
@@ -1146,7 +1309,7 @@
       <header class="app-header">
         <h1>Bookmark Library</h1>
         <div class="actions">
-          <button id="sync" class="quiet icon-button">
+          <button id="sync" class="quiet icon-button" disabled>
             <svg
               class="icon"
               viewBox="0 0 24 24"
@@ -1166,6 +1329,7 @@
             class="quiet icon-only"
             aria-label="Settings"
             title="Settings"
+            disabled
           >
             <svg
               class="icon"
@@ -1302,19 +1466,12 @@
         >
           <div id="filters" hidden>
             <div>
-              <label for="folder">X folder</label
-              ><select id="folder" name="folder">
-                <option value="">All folders</option>
-              </select>
+              <label id="folder-label" for="folder-trigger">X folder</label>
+              <div id="folder" class="choice"></div>
             </div>
             <div>
-              <label for="sort">Sort</label
-              ><select id="sort" name="sort">
-                <option value="">Newest posts</option>
-                <option value="like_count">Most likes</option>
-                <option value="impression_count">Most impressions</option>
-                <option value="bookmark_count">Most bookmarks</option>
-              </select>
+              <label id="sort-label" for="sort-trigger">Sort</label>
+              <div id="sort" class="choice"></div>
             </div>
           </div>
           <div id="filter-chips"></div>
@@ -1410,11 +1567,20 @@
         <div class="dialog-header">
           <h2 id="settings-heading">Settings</h2>
           <button
-            class="quiet"
+            class="quiet icon-only icon-button"
             data-close="settings-dialog"
             aria-label="Close settings"
           >
-            ✕
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
           </button>
         </div>
         <div class="feedback error" role="alert" data-error hidden></div>
@@ -1435,19 +1601,22 @@
             <p class="muted">
               Descriptions count toward your ChatGPT plan’s allowance.
             </p>
-            <label for="chatgpt-account">ChatGPT account</label
-            ><select id="chatgpt-account">
-              <option value="">No connected account</option>
-            </select>
-            <label for="model">Description model</label
-            ><select id="model">
-              <option value="">Select a model</option>
-            </select>
-            <div class="actions">
-              <button id="reconnect-chatgpt">Reconnect ChatGPT</button>
-              <button id="load-models">Refresh models</button
-              ><button id="usage">View usage</button
-              ><button id="disconnect-chatgpt">Disconnect</button>
+            <label id="chatgpt-account-label" for="chatgpt-account-trigger"
+              >ChatGPT account</label
+            >
+            <div id="chatgpt-account" class="choice"></div>
+            <div class="setting-heading">
+              <label id="model-label" for="model-trigger"
+                >Description model</label
+              ><button id="load-models" class="quiet">Refresh</button>
+            </div>
+            <div id="model" class="choice"></div>
+            <div class="account-actions">
+              <button id="usage" class="quiet">View usage ↗</button>
+              <button id="reconnect-chatgpt" class="quiet">Reconnect</button>
+              <button id="disconnect-chatgpt" class="quiet danger-action">
+                Disconnect
+              </button>
             </div>
           </details>
         </section>
@@ -1463,7 +1632,7 @@
         <section class="setting">
           <details>
             <summary>Storage</summary>
-            <p id="storage"></p>
+            <dl id="storage" class="storage-list"></dl>
             <p class="muted">
               Text and embeddings are kept. Temporary media is deleted after
               processing; older originals are preserved.
@@ -1473,18 +1642,27 @@
         <section class="setting">
           <h3>Support</h3>
           <button id="export">Export diagnostic report</button>
-          <pre id="report" role="status"></pre>
+          <p id="report" class="muted" role="status" hidden></p>
         </section>
       </dialog>
       <dialog id="issues-dialog" aria-labelledby="issues-heading">
         <div class="dialog-header">
           <h2 id="issues-heading">Processing details</h2>
           <button
-            class="quiet"
+            class="quiet icon-only icon-button"
             data-close="issues-dialog"
             aria-label="Close processing details"
           >
-            ✕
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
           </button>
         </div>
         <div class="feedback error" role="alert" data-error hidden></div>
@@ -1495,36 +1673,53 @@
         <div class="dialog-header">
           <h2 id="sync-heading">Sync bookmarks</h2>
           <button
-            class="quiet"
+            class="quiet icon-only icon-button"
             data-close="sync-dialog"
             aria-label="Close sync"
           >
-            ✕
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
           </button>
         </div>
         <div class="feedback error" role="alert" data-error hidden></div>
         <div class="feedback" role="status" data-notice hidden></div>
         <p>
-          Capture posts, direct replies/quotes and linked pages, then process
-          their media.
+          Capture bookmarks, their direct parent/quoted posts and linked pages.
         </p>
         <p class="muted">
           Uses X credits and your ChatGPT plan. Other paused runs stay paused.
         </p>
         <div class="actions">
           <button id="sync-new" class="primary">Sync new bookmarks</button
-          ><button id="sync-full">Check all exposed pages</button>
+          ><button id="sync-full">Check all bookmarks</button>
         </div>
       </dialog>
       <dialog id="clear-dialog" aria-labelledby="clear-heading">
         <div class="dialog-header">
           <h2 id="clear-heading">Clear failed temporary media?</h2>
           <button
-            class="quiet"
+            class="quiet icon-only icon-button"
             data-close="clear-dialog"
             aria-label="Cancel clearing media"
           >
-            ✕
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
           </button>
         </div>
         <div class="feedback error" role="alert" data-error hidden></div>
