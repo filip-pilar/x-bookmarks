@@ -10,3 +10,6 @@
 - DigUp informed the design. No DigUp source code is included.
 
 - The saved-post renderer bundles React, React DOM, react-tweet, SWR and clsx (MIT) and SWC helpers (Apache-2.0). Their license notices accompany the release. Tweet rendering uses saved X API data; it does not use a public syndication proxy. Remote media is loaded from X when viewed, with video playback on demand.
+
+- Markdown evidence rendering uses markdown-it and its dependencies (MIT). HTML execution and embedded media are disabled. License notices accompany the release.
+- The ChatGPT action uses the OpenAI logo path from `@openai/apps-sdk-ui` 0.2.2 (MIT), with its notice in `licenses/OpenAI-Apps-SDK-UI.txt`. The logo identifies the destination; the UI SDK is not bundled.

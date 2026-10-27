@@ -1,6 +1,14 @@
 # Verification and remaining limitations
 
-Version 0.7.3 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.4 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.4 panel polish
+
+List and reader share the same search field, toolbar height, content gutters and bounded scroll area. The document no longer scrolls behind the reserved composer area. Fullscreen uses the reported bottom inset or an 88-pixel fallback; inline/picture-in-picture use the reported inset only. Hosts with a taller unreported overlay still need a matching host inset. The shared search can be used from the reader, and Back restores the list position and keyboard focus.
+
+Descriptions and captured pages render paragraphs, lists, emphasis, code, quotes and tables. HTML is escaped, only HTTP(S) links become clickable, and Markdown images render as alt text without fetching media. Transcripts/OCR remain literal. Action buttons include destination/control icons, repeated source links and AI labels are removed, and video descriptions sort chronologically within each asset.
+
+A browser rehearsal used the actual built HTML, MCP Apps SDK, host-message handshake and backend with a copied library. It checked identical list/reader positions, gallery insets, back-scroll restoration, narrow dark mode, resizing, reported bottom insets, and Markdown safety with controlled hostile HTML/link/image input. Host size notifications stayed bounded. The host shell and floating composer were simulated; this is not direct verification inside the user's already-open ChatGPT panel. No imports or processing retries are part of this update.
 
 ## Verified for 0.7.3 layout and interaction
 

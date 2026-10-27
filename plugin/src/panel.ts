@@ -1,11 +1,12 @@
 import { clearTweets, renderTweets, type PostCard } from "./tweet.js";
+import { renderMarkdown } from "./markdown.js";
 import {
   App,
   applyDocumentTheme,
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const app = new App({ name: "Bookmark Library", version: "0.7.3" }),
+const app = new App({ name: "Bookmark Library", version: "0.7.4" }),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
 const input = (id: string) => $(id) as HTMLInputElement;
@@ -14,6 +15,7 @@ const dialog = (id: string) => $(id) as HTMLDialogElement;
 type Metadata = {
   url?: string;
   source_id?: string;
+  asset_id?: string;
   start_seconds?: number;
   end_seconds?: number;
   start_char?: number;
@@ -643,6 +645,7 @@ async function load(reset = true) {
     loadedQuery = query;
     renderFilters();
     renderList();
+    if (reset) $("library-scroll").scrollTop = 0;
     $("refresh-content").hidden = true;
     announce(
       searching
@@ -814,7 +817,7 @@ async function openItem(id: string, evidenceId?: string) {
   try {
     const detail = await call("detail", { item: id, evidence_id: evidenceId });
     if (request !== detailEpoch) return;
-    scroll = window.scrollY;
+    scroll = $("library-scroll").scrollTop;
     returnItem = id;
     selected = detail;
     currentMatch = evidenceId || "";
@@ -822,7 +825,7 @@ async function openItem(id: string, evidenceId?: string) {
     $("detail").hidden = false;
     ($("source-details") as HTMLDetailsElement).open = false;
     renderDetail(false);
-    window.scrollTo(0, 0);
+    $("reader-scroll").scrollTop = 0;
     const matched = $("evidence").querySelector<HTMLElement>(".matched");
     if (matched) {
       matched.focus({ preventScroll: true });
@@ -846,7 +849,12 @@ function relation(d: Detail, source?: string) {
 function evidenceHtml(e: Evidence, d: Detail, text = e.text, ids = [e.id]) {
   const matched = ids.includes(currentMatch),
     time = timeRange(e.metadata);
-  return `<article data-evidence="${esc(e.id)}" ${matched ? 'class="matched" tabindex="-1"' : e.kind === "context" ? 'class="context-card"' : ""}>${matched ? '<span class="match-label">Matched your search</span>' : ""}${e.kind === "context" ? `<h3>${relation(d, e.metadata.source_id)}</h3>` : ""}${time || e.metadata.generated || e.kind === "description" ? `<div class="timestamp">${esc([time, e.metadata.generated || e.kind === "description" ? "AI description" : ""].filter(Boolean).join(" · "))}</div>` : ""}<p class="evidence-text">${esc(text || `Matched the saved ${evidenceLabel(e.kind).toLowerCase()} embedding. ${e.metadata.start_seconds !== undefined ? "This time range identifies the matching moment. " : ""}Read other saved evidence below, or open the source to view the original.`)}</p>${e.metadata.coverage?.length ? `<p class="muted">${esc(e.metadata.coverage.join(" "))}</p>` : ""}${sourceLink(e.metadata.url)}</article>`;
+  const body = text
+    ? ["description", "linked-document"].includes(e.kind)
+      ? `<div class="markdown">${renderMarkdown(text)}</div>`
+      : `<p class="evidence-text">${esc(text)}</p>`
+    : `<p class="muted">Matched ${esc(evidenceLabel(e.kind).toLowerCase())}. Open the source to view the original.</p>`;
+  return `<article data-evidence="${esc(e.id)}" ${matched ? 'class="matched" tabindex="-1"' : e.kind === "context" ? 'class="context-card"' : ""}>${matched ? '<span class="match-label">Search match</span>' : ""}${e.kind === "context" ? `<h3>${relation(d, e.metadata.source_id)}</h3>` : ""}${time ? `<div class="timestamp">${esc(time)}</div>` : ""}${body}${e.metadata.coverage?.length ? `<p class="muted">${esc(e.metadata.coverage.join(" "))}</p>` : ""}${e.metadata.url !== d.url ? sourceLink(e.metadata.url) : ""}</article>`;
 }
 function renderEvidence(d: Detail, preserve: boolean) {
   const root = $("evidence"),
@@ -855,7 +863,7 @@ function renderEvidence(d: Detail, preserve: boolean) {
         root.querySelectorAll<HTMLDetailsElement>("details[data-kind]"),
       ).map((e) => [e.dataset.kind!, e.open]),
     );
-  const y = window.scrollY,
+  const y = $("reader-scroll").scrollTop,
     all = [...d.evidence];
   if (d.matched_evidence && !all.some((e) => e.id === d.matched_evidence!.id))
     all.push(d.matched_evidence);
@@ -884,8 +892,8 @@ function renderEvidence(d: Detail, preserve: boolean) {
         }[] = [];
         entries.sort(
           (a, b) =>
-            (a.metadata.source_id || "").localeCompare(
-              b.metadata.source_id || "",
+            (a.metadata.asset_id || a.metadata.source_id || "").localeCompare(
+              b.metadata.asset_id || b.metadata.source_id || "",
             ) ||
             (a.metadata.start_seconds ?? a.metadata.start_char ?? 0) -
               (b.metadata.start_seconds ?? b.metadata.start_char ?? 0),
@@ -929,7 +937,7 @@ function renderEvidence(d: Detail, preserve: boolean) {
             {
               context: "Reply & quote",
               "linked-document": "Linked pages",
-              description: "Visual descriptions",
+              description: "AI descriptions",
               transcript: "Transcripts",
               ocr: "Text in images",
               "alt-text": "Source alt text",
@@ -940,13 +948,13 @@ function renderEvidence(d: Detail, preserve: boolean) {
       })
       .join("") +
     (d.next_offset !== null
-      ? '<button id="more-evidence">Load more saved content</button>'
+      ? '<button id="more-evidence">Load more</button>'
       : "");
   wireLinks(root);
   if (d.next_offset !== null)
     action("more-evidence", async () => {
       const request = detailEpoch,
-        readingY = window.scrollY,
+        readingY = $("reader-scroll").scrollTop,
         more = await call("detail", { item: d.id, offset: d.next_offset });
       if (request !== detailEpoch || selected?.id !== d.id) return;
       selected = {
@@ -964,10 +972,10 @@ function renderEvidence(d: Detail, preserve: boolean) {
         $("more-evidence") ||
         root.querySelector<HTMLElement>("details:last-of-type > summary")
       )?.focus({ preventScroll: true });
-      window.scrollTo(0, readingY);
+      $("reader-scroll").scrollTop = readingY;
       announce("More saved content loaded");
     });
-  if (preserve) window.scrollTo(0, y);
+  if (preserve) $("reader-scroll").scrollTop = y;
 }
 function renderDetail(preserve = true) {
   if (!selected) return;
@@ -1063,6 +1071,7 @@ async function refreshDetail(id: string, reloadEvidence = false) {
 }
 $("search-form").onsubmit = (e) => {
   e.preventDefault();
+  showLibrary(false);
   void act(() => load());
 };
 input("query").oninput = () => {
@@ -1088,7 +1097,7 @@ for (const [id, value] of [
 for (const id of ["folder", "sort"])
   $(id).onchange = () => void act(() => load());
 action("more", () => load(false));
-$("back").onclick = () => {
+function showLibrary(restoreFocus = true) {
   detailEpoch++;
   $("detail").hidden = true;
   clearTweets($("detail-text"));
@@ -1097,9 +1106,10 @@ $("back").onclick = () => {
   const card = Array.from($("results").children).find(
     (e) => (e as HTMLElement).dataset.id === returnItem,
   ) as HTMLElement;
-  (card || $("query")).focus({ preventScroll: true });
-  window.scrollTo(0, scroll);
-};
+  if (restoreFocus) (card || $("query")).focus({ preventScroll: true });
+  $("library-scroll").scrollTop = scroll;
+}
+$("back").onclick = () => showLibrary();
 action("use", () =>
   draft(
     `Use my saved bookmark bookmark://item/${selected?.id}. Read its saved evidence and source coverage before making claims. Help me apply the useful ideas.`,
@@ -1226,6 +1236,18 @@ function theme(ctx: ReturnType<App["getHostContext"]>) {
     document.documentElement.dataset.theme = ctx.theme;
   }
   if (ctx?.styles?.variables) applyHostStyleVariables(ctx.styles.variables);
+  if (ctx?.displayMode) document.documentElement.dataset.mode = ctx.displayMode;
+  const dimensions = ctx?.containerDimensions;
+  if (dimensions) {
+    const height =
+      "height" in dimensions ? dimensions.height : dimensions.maxHeight;
+    if (height && height > 0)
+      document.documentElement.style.setProperty(
+        "--host-height",
+        `${height}px`,
+      );
+    else document.documentElement.style.removeProperty("--host-height");
+  }
   if (ctx?.safeAreaInsets)
     for (const edge of ["top", "right", "bottom", "left"] as const)
       document.documentElement.style.setProperty(
@@ -1233,6 +1255,16 @@ function theme(ctx: ReturnType<App["getHostContext"]>) {
         `${Math.max(0, ctx.safeAreaInsets[edge] || 0)}px`,
       );
 }
+// Reserve the same scrollbar space in the shared chrome and both content views.
+const scrollbars = new ResizeObserver(() => {
+  const port = $(selected ? "reader-scroll" : "library-scroll");
+  document.documentElement.style.setProperty(
+    "--scrollbar-size",
+    `${port.offsetWidth - port.clientWidth}px`,
+  );
+});
+scrollbars.observe($("library-scroll"));
+scrollbars.observe($("reader-scroll"));
 app.addEventListener("hostcontextchanged", theme);
 app.ontoolresult = (r) => {
   if (

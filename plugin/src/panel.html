@@ -52,16 +52,20 @@
       * {
         box-sizing: border-box;
       }
-      html {
-        scrollbar-gutter: stable;
-        scroll-padding-top: 80px;
-        scroll-padding-bottom: max(100px, var(--host-bottom, 0px));
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
       }
       body {
         margin: 0;
       }
-      html:has(dialog[open]) {
-        overflow: hidden;
+      :root {
+        --composer-clearance: max(88px, var(--host-bottom, 0px));
+      }
+      :root[data-mode="inline"],
+      :root[data-mode="pip"] {
+        --composer-clearance: var(--host-bottom, 0px);
       }
       .icon {
         width: 18px;
@@ -84,15 +88,39 @@
         display: none !important;
       }
       main {
-        max-width: 808px;
+        max-width: 840px;
+        height: min(100dvh, var(--host-height, 100dvh));
         margin: auto;
-        padding: max(0px, var(--host-top, 0px))
-          max(24px, var(--host-right, 0px))
-          calc(
-            max(100px, var(--host-bottom, 0px)) + 24px +
-              var(--feedback-space, 0px)
-          )
-          max(24px, var(--host-left, 0px));
+        padding: var(--host-top, 0px) max(24px, var(--host-right, 0px))
+          var(--composer-clearance) max(24px, var(--host-left, 0px));
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      #list,
+      #detail {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+      .scrollport {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+        scroll-padding-block: 16px;
+        padding: 4px 0 24px;
+      }
+      #reader-scroll {
+        padding: 24px 16px;
+      }
+      .search,
+      .app-header,
+      .toolbar,
+      .reader-toolbar {
+        flex-shrink: 0;
       }
       button,
       input,
@@ -173,7 +201,7 @@
       .app-header {
         justify-content: space-between;
         min-height: 76px;
-        padding: 18px 0;
+        padding: 18px calc(16px + var(--scrollbar-size, 0px)) 18px 16px;
         gap: 16px;
       }
       .app-header .actions {
@@ -211,9 +239,10 @@
         font-size: 13px;
       }
       .search {
+        margin-right: var(--scrollbar-size, 0px);
         border: 1px solid var(--line);
         border-radius: 10px;
-        padding: 4px 4px 4px 12px;
+        padding: 4px 8px 4px 16px;
         background: var(--soft);
         gap: 5px;
         min-height: 44px;
@@ -241,12 +270,14 @@
         justify-content: space-between;
         min-height: 48px;
         margin: 6px 0 8px;
+        padding: 0 calc(8px + var(--scrollbar-size, 0px)) 0 8px;
         gap: 12px;
       }
       .toolbar > .actions {
         gap: 5px;
       }
       .toolbar button {
+        padding-inline: 8px;
         font-size: 13px;
       }
       .view-switch {
@@ -272,7 +303,7 @@
       #filters {
         display: flex;
         gap: 16px;
-        padding: 12px 0 18px;
+        padding: 12px 16px 18px;
       }
       label {
         font-size: 13px;
@@ -287,6 +318,7 @@
         background: var(--surface);
       }
       #filter-chips {
+        padding-inline: 16px;
         display: flex;
         gap: 6px;
         flex-wrap: wrap;
@@ -333,7 +365,7 @@
         color: var(--danger);
       }
       #results {
-        margin-top: 4px;
+        margin-top: 0;
       }
       #results:empty[aria-busy="true"] {
         min-height: 380px;
@@ -353,7 +385,7 @@
         border: 0;
         border-bottom: 1px solid var(--line);
         border-radius: 0;
-        padding: 20px 0;
+        padding: 20px 16px;
         min-height: 100px;
         overflow-wrap: anywhere;
       }
@@ -481,7 +513,7 @@
         gap: 14px;
       }
       .gallery .bookmark {
-        padding: 16px;
+        padding: 15px;
         border: 1px solid var(--line);
         border-radius: 12px;
         align-self: stretch;
@@ -497,7 +529,10 @@
         display: none;
       }
       .gallery .body {
-        -webkit-line-clamp: 6;
+        -webkit-line-clamp: 4;
+      }
+      .gallery .bookmark:not(:has(.preview-slot)) .body {
+        -webkit-line-clamp: 9;
       }
       #detail {
         min-width: 0;
@@ -507,17 +542,21 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        min-height: 44px;
-        margin-bottom: 24px;
+        min-height: 48px;
+        margin: 6px 0 8px;
+        padding: 0 calc(8px + var(--scrollbar-size, 0px)) 0 8px;
       }
       #back {
-        margin-left: -9px;
+        padding-inline: 8px;
       }
       .reader-toolbar .actions {
         gap: 8px;
         flex-wrap: nowrap;
       }
       .reader-toolbar a {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
         text-decoration: none;
         white-space: nowrap;
         font-size: 13px;
@@ -658,15 +697,12 @@
       .evidence-text {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
-        line-height: 1.7;
+        line-height: 1.65;
       }
       .detail-body {
         font-size: 16px;
         margin: 0 0 28px;
         overflow-wrap: anywhere;
-      }
-      #detail > .actions {
-        margin-bottom: 28px;
       }
       details {
         border-top: 1px solid var(--line);
@@ -677,6 +713,105 @@
         font-size: 14px;
         font-weight: 500;
         line-height: 1.5;
+      }
+      summary {
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      summary::-webkit-details-marker {
+        display: none;
+      }
+      summary::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        flex: 0 0 6px;
+        border-right: 1.5px solid currentColor;
+        border-top: 1.5px solid currentColor;
+        transform: rotate(45deg);
+        margin: 0 3px 0 2px;
+        color: var(--muted);
+      }
+      details[open] > summary::before {
+        transform: rotate(135deg);
+      }
+      .markdown {
+        overflow-wrap: anywhere;
+        font-size: 15px;
+        line-height: 1.65;
+      }
+      .markdown > :first-child {
+        margin-top: 8px;
+      }
+      .markdown > :last-child {
+        margin-bottom: 0;
+      }
+      .markdown p,
+      .markdown ul,
+      .markdown ol,
+      .markdown blockquote,
+      .markdown pre {
+        margin-block: 12px;
+      }
+      .markdown p {
+        line-height: inherit;
+      }
+      .markdown ul,
+      .markdown ol {
+        padding-left: 22px;
+      }
+      .markdown li + li {
+        margin-top: 6px;
+      }
+      .markdown li > p {
+        margin-block: 6px;
+      }
+      .markdown h1,
+      .markdown h2,
+      .markdown h3,
+      .markdown h4 {
+        font-size: 16px;
+        margin: 20px 0 8px;
+        letter-spacing: normal;
+      }
+      .markdown blockquote {
+        margin-inline: 0;
+        padding-left: 16px;
+        border-left: 2px solid var(--line);
+        color: var(--muted);
+      }
+      .markdown code {
+        font:
+          0.88em ui-monospace,
+          SFMono-Regular,
+          monospace;
+        background: var(--soft);
+        padding: 2px 4px;
+        border-radius: 4px;
+      }
+      .markdown pre {
+        overflow: auto;
+        padding: 12px;
+        background: var(--soft);
+        border-radius: 8px;
+      }
+      .markdown pre code {
+        padding: 0;
+      }
+      .markdown table {
+        display: block;
+        max-width: 100%;
+        overflow-x: auto;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      .markdown th,
+      .markdown td {
+        text-align: left;
+        padding: 8px 12px;
+        border: 1px solid var(--line);
       }
       article {
         padding: 16px 0;
@@ -830,16 +965,16 @@
       #count {
         font-variant-numeric: tabular-nums;
       }
-      main:has(#notice:not([hidden])),
-      main:has(#error:not([hidden])),
-      main:has(#refresh-content:not([hidden])),
-      main:has(#progress:not([hidden])) {
-        --feedback-space: 160px;
+      main:has(#notice:not([hidden])) .scrollport,
+      main:has(#error:not([hidden])) .scrollport,
+      main:has(#refresh-content:not([hidden])) .scrollport,
+      main:has(#progress:not([hidden])) .scrollport {
+        padding-bottom: 184px;
       }
       #feedback-dock {
         position: fixed;
         z-index: 5;
-        bottom: calc(max(80px, var(--host-bottom, 0px)) + 16px);
+        bottom: calc(var(--composer-clearance) + 16px);
         left: max(16px, var(--host-left, 0px));
         right: max(16px, var(--host-right, 0px));
         width: min(760px, calc(100% - 32px));
@@ -916,8 +1051,8 @@
       }
       @media (max-width: 520px) {
         main {
-          padding-left: max(16px, var(--host-left, 0px));
-          padding-right: max(16px, var(--host-right, 0px));
+          padding-left: max(8px, var(--host-left, 0px));
+          padding-right: max(8px, var(--host-right, 0px));
         }
         .app-header {
           gap: 12px;
@@ -962,7 +1097,6 @@
         }
         .reader-toolbar {
           gap: 6px;
-          margin-bottom: 20px;
         }
         .reader-toolbar .actions {
           gap: 2px;
@@ -989,17 +1123,19 @@
           padding-left: 14px;
         }
       }
-      @media (max-width: 360px) {
-        .reader-toolbar {
-          flex-wrap: wrap;
-          gap: 8px;
+      @media (max-width: 520px) {
+        #view-list .label,
+        #view-gallery .label,
+        #filter-toggle .label,
+        #source .label,
+        #back .label {
+          display: none;
         }
-        .reader-toolbar .actions {
-          width: 100%;
-          justify-content: space-between;
+        .toolbar .icon-button {
+          min-width: 34px;
         }
-        #use {
-          white-space: nowrap;
+        .gallery {
+          padding-inline: 0;
         }
       }
     </style>
@@ -1010,7 +1146,21 @@
       <header class="app-header">
         <h1>Bookmark Library</h1>
         <div class="actions">
-          <button id="sync" class="quiet">Sync</button
+          <button id="sync" class="quiet icon-button">
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path
+                d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"
+              /></svg
+            >Sync</button
           ><button
             id="settings"
             class="quiet icon-only"
@@ -1052,71 +1202,134 @@
           </div>
         </div>
       </aside>
+      <form id="search-form" class="search" role="search">
+        <svg
+          class="icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          aria-hidden="true"
+        >
+          <circle cx="10.5" cy="10.5" r="6.5" />
+          <path d="m16 16 4.5 4.5" />
+        </svg>
+        <input
+          id="query"
+          name="query"
+          type="search"
+          placeholder="Find an idea, image, or moment…"
+          aria-label="Search saved bookmarks"
+          autocomplete="off"
+        />
+        <button id="search-submit" type="submit" class="quiet">Search</button>
+      </form>
       <section id="list" aria-label="Saved bookmarks">
-        <form id="search-form" class="search" role="search">
-          <svg
-            class="icon"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.7"
-            aria-hidden="true"
-          >
-            <circle cx="10.5" cy="10.5" r="6.5" />
-            <path d="m16 16 4.5 4.5" />
-          </svg>
-          <input
-            id="query"
-            name="query"
-            type="search"
-            placeholder="Find an idea, image, or moment…"
-            aria-label="Search saved bookmarks"
-            autocomplete="off"
-          />
-          <button id="search-submit" type="submit" class="quiet">Search</button>
-        </form>
         <div class="toolbar">
           <div class="actions">
             <button
               id="filter-toggle"
-              class="quiet"
+              class="quiet icon-button"
+              aria-label="Filters"
               type="button"
               aria-controls="filters"
               aria-expanded="false"
             >
-              Filters</button
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M4 7h9m4 0h3M4 17h3m4 0h9" />
+                <circle cx="15" cy="7" r="2" />
+                <circle cx="9" cy="17" r="2" /></svg
+              ><span class="label">Filters</span></button
             ><span id="count" class="muted"></span>
           </div>
           <div class="view-switch" role="group" aria-label="Library view">
-            <button id="view-list" aria-pressed="true">List</button
-            ><button id="view-gallery" aria-pressed="false">Gallery</button>
+            <button
+              id="view-list"
+              class="icon-button"
+              aria-label="List"
+              aria-pressed="true"
+            >
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M9 6h11M9 12h11M9 18h11M3 6h1M3 12h1M3 18h1" /></svg
+              ><span class="label">List</span></button
+            ><button
+              id="view-gallery"
+              class="icon-button"
+              aria-label="Gallery"
+              aria-pressed="false"
+            >
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="3" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="3" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="7" rx="1" />
+                <rect x="14" y="14" width="7" height="7" rx="1" /></svg
+              ><span class="label">Gallery</span>
+            </button>
           </div>
         </div>
-        <div id="filters" hidden>
-          <div>
-            <label for="folder">X folder</label
-            ><select id="folder" name="folder">
-              <option value="">All folders</option>
-            </select>
+        <div
+          id="library-scroll"
+          class="scrollport"
+          tabindex="0"
+          aria-label="Bookmarks"
+        >
+          <div id="filters" hidden>
+            <div>
+              <label for="folder">X folder</label
+              ><select id="folder" name="folder">
+                <option value="">All folders</option>
+              </select>
+            </div>
+            <div>
+              <label for="sort">Sort</label
+              ><select id="sort" name="sort">
+                <option value="">Newest posts</option>
+                <option value="like_count">Most likes</option>
+                <option value="impression_count">Most impressions</option>
+                <option value="bookmark_count">Most bookmarks</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label for="sort">Sort</label
-            ><select id="sort" name="sort">
-              <option value="">Newest posts</option>
-              <option value="like_count">Most likes</option>
-              <option value="impression_count">Most impressions</option>
-              <option value="bookmark_count">Most bookmarks</option>
-            </select>
-          </div>
+          <div id="filter-chips"></div>
+          <div id="results" aria-busy="true"></div>
+          <div id="empty" hidden></div>
+          <footer><button id="more" hidden>Load more</button></footer>
         </div>
-        <div id="filter-chips"></div>
-        <div id="results" aria-busy="true"></div>
-        <div id="empty" hidden></div>
-        <footer><button id="more" hidden>Load more</button></footer>
       </section>
       <section id="detail" hidden aria-labelledby="detail-heading">
         <nav class="reader-toolbar" aria-label="Bookmark">
-          <button id="back" class="quiet icon-button">
+          <button
+            id="back"
+            class="quiet icon-button"
+            aria-label="Back to library"
+          >
             <svg
               class="icon"
               viewBox="0 0 24 24"
@@ -1126,26 +1339,65 @@
               aria-hidden="true"
             >
               <path d="m14 6-6 6 6 6" /></svg
-            >Library
+            ><span class="label">Library</span>
           </button>
           <div class="actions">
-            <button id="use" class="primary">Use in ChatGPT</button
+            <button id="use" class="primary icon-button">
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path
+                  d="M9.20509 8.76514V6.50548C9.20509 6.31517 9.27649 6.17237 9.44293 6.07733L13.9861 3.46091C14.6046 3.10416 15.342 2.93772 16.103 2.93772C18.9573 2.93772 20.7651 5.14986 20.7651 7.50457C20.7651 7.67101 20.7651 7.86132 20.7412 8.05164L16.0316 5.29243C15.7462 5.12599 15.4607 5.12599 15.1753 5.29243L9.20509 8.76514ZM19.8136 17.566V12.1665C19.8136 11.8334 19.6708 11.5955 19.3854 11.4291L13.4152 7.95637L15.3656 6.83836C15.5321 6.74332 15.6749 6.74332 15.8413 6.83836L20.3845 9.45477C21.6928 10.216 22.5728 11.8334 22.5728 13.4032C22.5728 15.2108 21.5025 16.8759 19.8136 17.5657V17.566ZM7.80173 12.8088L5.8513 11.6671C5.68486 11.5721 5.61346 11.4293 5.61346 11.239V6.00616C5.61346 3.46114 7.56389 1.53436 10.2042 1.53436C11.2033 1.53436 12.1307 1.86746 12.9159 2.46205L8.2301 5.17374C7.94475 5.34018 7.80196 5.57801 7.80196 5.91112V12.809L7.80173 12.8088ZM12 15.2349L9.20509 13.6651V10.3352L12 8.76537L14.7947 10.3352V13.6651L12 15.2349ZM13.7958 22.4659C12.7967 22.4659 11.8693 22.1328 11.0841 21.5382L15.7699 18.8265C16.0553 18.6601 16.198 18.4223 16.198 18.0892V11.1912L18.1723 12.3329C18.3388 12.4279 18.4102 12.5707 18.4102 12.7611V17.9939C18.4102 20.5389 16.4359 22.4657 13.7958 22.4657V22.4659ZM8.15848 17.1617L3.61528 14.5453C2.30696 13.784 1.42701 12.1667 1.42701 10.5969C1.42701 8.76537 2.52115 7.12417 4.20987 6.43431V11.8575C4.20987 12.1906 4.35266 12.4284 4.63802 12.5948L10.5846 16.0437L8.63415 17.1617C8.46771 17.2567 8.32492 17.2567 8.15848 17.1617ZM7.897 21.0626C5.20919 21.0626 3.23488 19.0407 3.23488 16.5432C3.23488 16.3529 3.25875 16.1626 3.2824 15.9723L7.96817 18.684C8.25352 18.8504 8.53911 18.8504 8.82447 18.684L14.7947 15.2351V17.4948C14.7947 17.6851 14.7233 17.8279 14.5568 17.9229L10.0136 20.5394C9.39518 20.8961 8.6578 21.0626 7.89677 21.0626H7.897ZM13.7958 23.8929C16.6739 23.8929 19.0762 21.8475 19.6235 19.1358C22.2874 18.4459 24 15.9484 24 13.4034C24 11.7383 23.2865 10.121 22.002 8.95546C22.121 8.45591 22.1924 7.95637 22.1924 7.45705C22.1924 4.05573 19.4331 1.51048 16.2458 1.51048C15.6037 1.51048 14.9852 1.60553 14.3668 1.81971C13.2963 0.773101 11.8215 0.107117 10.2042 0.107117C7.32606 0.107117 4.92383 2.15259 4.37653 4.86428C1.7126 5.55414 0 8.05164 0 10.5967C0 12.2617 0.713506 13.8791 1.99795 15.0446C1.87904 15.5441 1.80764 16.0437 1.80764 16.543C1.80764 19.9443 4.56685 22.4896 7.75421 22.4896C8.39632 22.4896 9.01478 22.3945 9.63324 22.1803C10.7035 23.2269 12.1783 23.8929 13.7958 23.8929Z"
+                  fill="currentColor"
+                  stroke="none"
+                /></svg
+              >Use in ChatGPT</button
             ><a
               id="source"
               href="https://x.com"
               target="_blank"
               rel="noopener noreferrer"
-              >Open on X ↗</a
+              aria-label="Open on X"
+              ><svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path
+                  d="M18.9 2H22l-6.8 7.8L23.2 22h-6.3L12 14.6 5.5 22H2.3l7.9-9.1L1 2h6.5l5.8 7.6L18.9 2ZM17.8 20h1.7L6.6 4H4.8l13 16Z"
+                  fill="currentColor"
+                  stroke="none"
+                /></svg
+              ><span class="label">Open on X</span></a
             >
           </div>
         </nav>
-        <h2 id="detail-heading" tabindex="-1"></h2>
-        <div id="detail-text" class="detail-body"></div>
-        <div id="evidence"></div>
-        <details id="source-details">
-          <summary>Source details &amp; engagement</summary>
-          <div id="detail-info"></div>
-        </details>
+        <div
+          id="reader-scroll"
+          class="scrollport"
+          tabindex="0"
+          aria-label="Bookmark content"
+        >
+          <h2 id="detail-heading" tabindex="-1"></h2>
+          <div id="detail-text" class="detail-body"></div>
+          <div id="evidence"></div>
+          <details id="source-details">
+            <summary>Source details</summary>
+            <div id="detail-info"></div>
+          </details>
+        </div>
       </section>
       <p
         id="announcement"
@@ -1181,8 +1433,7 @@
           <details id="account-settings">
             <summary>Account &amp; model</summary>
             <p class="muted">
-              Images and sampled frames use your authorized ChatGPT plan and
-              count toward its allowance.
+              Descriptions count toward your ChatGPT plan’s allowance.
             </p>
             <label for="chatgpt-account">ChatGPT account</label
             ><select id="chatgpt-account">
@@ -1214,9 +1465,8 @@
             <summary>Storage</summary>
             <p id="storage"></p>
             <p class="muted">
-              Text and embeddings stay saved. Temporary media is removed after
-              required outputs are saved. Originals from earlier versions are
-              preserved.
+              Text and embeddings are kept. Temporary media is deleted after
+              processing; older originals are preserved.
             </p>
           </details>
         </section>
@@ -1255,11 +1505,11 @@
         <div class="feedback error" role="alert" data-error hidden></div>
         <div class="feedback" role="status" data-notice hidden></div>
         <p>
-          Fetch bookmarks, direct reply/quote context and linked pages. Process
-          their media and save descriptions using your ChatGPT plan.
+          Capture posts, direct replies/quotes and linked pages, then process
+          their media.
         </p>
         <p class="muted">
-          X reads use your X credits. Unrelated paused runs remain paused.
+          Uses X credits and your ChatGPT plan. Other paused runs stay paused.
         </p>
         <div class="actions">
           <button id="sync-new" class="primary">Sync new bookmarks</button
