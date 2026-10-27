@@ -3,7 +3,7 @@ from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs
 from store import HOME, init, atomic, status, VERSION, preflight_ready, set_setting
-import jobs, retrieval, xapi, enrichment
+import jobs, retrieval, xapi, enrichment, pipeline, subscription, library, pages, diagnostics
 
 PORT = int(os.environ.get("BOOKMARK_LIBRARY_PORT", "8765"))
 SEARCH_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -80,11 +80,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Host") not in (f"127.0.0.1:{PORT}", f"localhost:{PORT}"):
             return self.output(403, {"error": "Invalid host"})
         parsed = urlsplit(self.path)
-        if parsed.path != "/oauth/x/callback":
+        if parsed.path not in ("/oauth/x/callback", "/oauth/chatgpt/callback"):
             return self.output(404, {"error": "Not found"})
         try:
-            xapi.finish(parse_qs(parsed.query))
-            message = "X connected. Credentials saved to your Mac Keychain. You can return to ChatGPT."
+            if parsed.path == "/oauth/chatgpt/callback":
+                subscription.finish(parse_qs(parsed.query))
+                message = "ChatGPT connected. Choose a description model in Bookmark Library settings. No import started."
+            else:
+                xapi.finish(parse_qs(parsed.query))
+                message = "X connected. Credentials saved to your Mac Keychain. You can return to ChatGPT."
         except Exception as e:
             message = str(e)
         import html
@@ -108,7 +112,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.output(403, {"error": "Unauthorized"})
         try:
             size = int(self.headers.get("Content-Length", 0))
-            if size > 100000:
+            if size < 0 or size > 2_500_000:
                 raise ValueError("Request too large.")
             data = json.loads(self.rfile.read(size))
             action = data["action"]
@@ -119,7 +123,7 @@ class Handler(BaseHTTPRequestHandler):
                 "process_saved": lambda: jobs.process_saved(
                     args.get("mode", "rebuild"), args.get("item")
                 ),
-                "control": lambda: jobs.control(args["action"]),
+                "control": lambda: jobs.control(args["action"], args.get("run"), args.get("item")),
                 "connect": xapi.begin,
                 "disconnect": xapi.disconnect,
                 "search": lambda: search_async(args),
@@ -130,6 +134,18 @@ class Handler(BaseHTTPRequestHandler):
                 "save_enrichment": lambda: enrichment.save(args),
                 "sync_folders": jobs.sync_folders,
                 "mentions": lambda: retrieval.mentions(args.get("query", "")),
+                "browse": lambda: library.browse(args),
+                "detail": lambda: library.detail(args),
+                "thumbnail": lambda: library.thumbnail(args),
+                "clear_cache": lambda: pipeline.clear_cache(args.get("item")),
+                "aggregate": lambda: library.aggregate(args),
+                "diagnostics": diagnostics.export_report,
+                "browser_pending": lambda: pages.pending(args.get("limit", 20)),
+                "browser_capture": lambda: pages.save(args),
+                "chatgpt_connect": lambda: subscription.begin(PORT, args.get("account")),
+                "chatgpt_models": lambda: {"models": subscription.models()},
+                "chatgpt_select": lambda: subscription.select(args.get("model"), args.get("account")),
+                "chatgpt_disconnect": subscription.disconnect,
             }
             if action not in handlers:
                 raise ValueError("Unknown operation.")
@@ -156,4 +172,6 @@ if __name__ == "__main__":
     )
     for kind in ("sync", "process"):
         threading.Thread(target=jobs.loop, args=(kind,), daemon=True).start()
+    for lane in ("local", "description"):
+        threading.Thread(target=pipeline.loop, args=(lane,), daemon=True).start()
     http.serve_forever()

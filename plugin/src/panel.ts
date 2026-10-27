@@ -4,639 +4,573 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const app = new App({ name: "Bookmark Library", version: "0.6.0" });
-const extensions = new OpenAIExtensions(app);
+const app = new App({ name: "Bookmark Library", version: "0.7.0" }),
+  extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
+const input = (id: string) => $(id) as HTMLInputElement;
 const dialog = (id: string) => $(id) as HTMLDialogElement;
-type Job = {
+type Row = {
+  id: string;
+  item?: string;
+  title: string;
+  author: string;
+  text?: string;
+  excerpt?: string;
+  url: string;
+  state?: string;
+  has_media?: boolean;
+  metrics?: any;
+};
+type Stage = {
+  id: string;
+  item: string;
   kind: string;
   state: string;
   error?: string;
-  payload: string;
   next_at?: number;
+  run: string;
 };
-type IssueKind = "sample" | "retryable" | "unavailable" | "limitation";
-type LibraryState = {
+type State = {
   connected: boolean;
-  account?: { username?: string };
+  account?: { username: string };
   total: number;
-  counts: Record<string, number>;
-  searchable: number;
-  vectors: number;
-  content: Record<
-    string,
-    { sources: number; bookmarks: number; segments: number }
-  >;
-  issues: { message: string; bookmarks: number; kind: IssueKind }[];
-  issue_counts: Record<IssueKind, number>;
-  issue_groups: number;
-  jobs: Job[];
-  job_counts: { kind: string; state: string; count: number }[];
-  processing_remaining: number;
   paused: boolean;
-  pause_reason?: string;
-  sample_only: boolean;
-  last_inventory?: {
-    at: number;
-    mode?: string;
-    unresolved_folder_ids?: string[];
-    unseen_retained?: number;
-    endpoint_exhausted: boolean;
-    unavailable_records?: number;
-    partial_pages?: number;
-    folders_complete: boolean;
-    folders_checked?: boolean;
-  };
-  last_processed?: number;
+  stage_counts: { kind: string; state: string; count: number }[];
+  stage_issues: Stage[];
+  runs: { id: string; state: string; created: number }[];
+  temporary_bytes: number;
+  temporary_limit: number;
   storage_bytes: number;
-  folders: number;
-  folder_inventory?: { complete: boolean; at: number; in_progress?: boolean };
-  enrichment?: { complete: number; pending: number; stale: number };
-  library_path: string;
-  usage: { requests: number; records: number };
-  processing?: { item: string; title: string; stage?: string; detail?: string };
+  index_bytes: number;
+  runtime_bytes: number;
+  jobs: Stage[];
+  job_counts: { kind: string; state: string; count: number }[];
+  chatgpt: {
+    connected: boolean;
+    plan_enabled: boolean;
+    model?: string;
+    active?: string;
+    accounts: { id: string; label: string }[];
+  };
 };
-let state: LibraryState | undefined;
-let busy = false;
-let actionError = "";
-let connectionError = "";
-const number = (n = 0) => n.toLocaleString();
-const plural = (n: number, one: string, many = one + "s") =>
-  `${number(n)} ${n === 1 ? one : many}`;
-const date = (seconds?: number) =>
-  seconds
-    ? new Date(seconds * 1000).toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      })
-    : "Not yet";
-const text = (id: string, value: string) => {
-  if ($(id).textContent !== value) $(id).textContent = value;
+type Evidence = {
+  id: string;
+  kind: string;
+  text: string;
+  metadata: {
+    url?: string;
+    source_id?: string;
+    start_seconds?: number;
+    end_seconds?: number;
+    generated?: boolean;
+    coverage?: string[];
+  };
 };
-function message(id: string, value: string) {
-  text(id, value);
-  $(id).hidden = !value;
+type Detail = Omit<Row, "metrics"> & {
+  evidence: Evidence[];
+  next_offset: number | null;
+  stages: Stage[];
+  coverage: string[];
+  metrics: { at: number; values: Record<string, number> }[];
+};
+let state: State | undefined,
+  selected: Detail | undefined,
+  rows: Row[] = [],
+  next: number | null = null,
+  gallery = false,
+  searching = false,
+  scroll = 0,
+  epoch = 0;
+const esc = (s: unknown) =>
+  String(s ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ]!,
+  );
+const bytes = (n = 0) => `${(n / 1024 ** 3).toFixed(2)} GB`,
+  date = (t: number) => new Date(t * 1000).toLocaleString();
+function notice(t: string) {
+  $("notice").textContent = t;
+  $("notice").hidden = !t;
 }
-async function call(name: string, args: Record<string, unknown> = {}) {
+async function call(
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<any> {
   const r = await app.callServerTool({ name, arguments: args });
   if (r.isError)
     throw new Error(
       r.content
-        ?.filter((c: { type: string; text?: string }) => c.type === "text")
-        .map((c: { type: string; text?: string }) => c.text)
+        ?.filter((c: any) => c.type === "text")
+        .map((c: any) => c.text)
         .join(" ") || "Operation failed.",
     );
   return r.structuredContent;
 }
-async function refresh() {
-  try {
-    const s = await call("status");
-    connectionError = "";
-    render(s as unknown as LibraryState);
-  } catch (e) {
-    connectionError = `Couldn’t refresh the library. ${(e as Error).message}`;
-    message("error", connectionError);
-  }
-}
-function issueLabel(raw: string) {
-  const labels: Record<string, string> = {
-    "Thread coverage not verified in the bounded sample.":
-      "Threads not expanded",
-    "Quoted/parent posts not fetched in the bounded sample.":
-      "Quoted and parent posts not fetched",
-    "Linked source: Source missing from cached sample; network disabled.":
-      "Linked pages not fetched",
-    "X Article images retained as a gallery; inline positions were not supplied by X.":
-      "Article images saved as a gallery",
-  };
-  return labels[raw] || raw;
-}
-function render(s: LibraryState) {
-  state = s;
-  const pending = s.job_counts.filter((j) =>
-    ["queued", "running", "waiting"].includes(j.state),
-  );
-  const running = pending.some((j) => j.count > 0);
-  const failedCount = s.job_counts
-    .filter((j) => j.state === "failed")
-    .reduce((sum, j) => sum + j.count, 0);
-  const sync = s.jobs.find(
-    (j) =>
-      j.kind === "sync" && ["queued", "running", "waiting"].includes(j.state),
-  );
-  const waiting = s.jobs.find((j) => j.state === "waiting");
-  const partial = s.counts.partial || 0;
-  const failed = s.counts.error || 0;
-  const stages: Record<string, string> = {
-    context: "Fetching thread context",
-    downloading: "Downloading sources",
-    transcribing: "Transcribing audio",
-    preparing_audio: "Preparing audio",
-    reading_images: "Reading image text",
-    indexing: "Indexing for ChatGPT",
-    saving: "Saving results",
-  };
-  const processingStage = s.processing?.stage;
-  const pausing = s.paused && s.jobs.some((j) => j.state === "running");
-  const waitingForRetry =
-    !!waiting && !s.jobs.some((j) => j.state === "running");
-  text(
-    "account",
-    s.connected
-      ? s.account?.username
-        ? "@" + s.account.username
-        : "Connected to X"
-      : "Not connected",
-  );
-  $("dot").classList.toggle("on", s.connected);
-  text("saved", number(s.total));
-  text("searchable", number(s.searchable));
-  text(
-    "remaining",
-    number(Math.max(s.processing_remaining, s.total - s.searchable)),
-  );
-  let title = s.total
-    ? s.sample_only
-      ? "Sample imported"
-      : partial || failed
-        ? "Searchable · see source details"
-        : "Ready in ChatGPT"
-    : "Not imported";
-  let detail = "";
-  if (s.searchable < s.total) title = "Processing incomplete";
-  if (failedCount) title = "Retry needed";
-  if (running) {
-    title = s.paused
-      ? pausing
-        ? "Pausing after this step…"
-        : "Paused"
-      : waitingForRetry
-        ? "Waiting to retry"
-        : sync
-          ? "Fetching bookmarks"
-          : stages[processingStage || ""] || "Preparing processing…";
-    if (sync && !s.paused) {
-      let phase: { phase?: string; returned?: number } = {};
-      try {
-        phase = JSON.parse(sync.payload);
-      } catch {
-        /* The first import checkpoint may not exist yet. */
-      }
-      detail =
-        phase.phase === "bookmarks"
-          ? `${number(phase.returned || 0)} received`
-          : phase.phase === "finish"
-            ? "Saving sync results…"
-            : "Checking folders…";
-      if (phase.phase !== "bookmarks")
-        title = phase.phase === "finish" ? "Finishing sync" : "Syncing folders";
-    } else if (s.processing?.title && !s.paused && !waitingForRetry) {
-      detail =
-        s.processing.title.slice(0, 85) +
-        (s.processing.title.length > 85 ? "…" : "");
-    }
-    if (waitingForRetry && !s.paused && waiting?.next_at)
-      detail = `Retry at ${date(waiting.next_at)}`;
-  }
-  text("status-title", title);
-  message("detail", detail);
-  const progress = $("progress") as HTMLProgressElement;
-  progress.hidden = !running;
-  if (sync) progress.removeAttribute("value");
-  else {
-    progress.max = Math.max(s.total, s.processing_remaining, 1);
-    progress.value = Math.max(0, s.total - s.processing_remaining);
-  }
-  $("workflow").hidden = !running;
-  $("step-fetch").classList.toggle("complete", !sync);
-  $("step-fetch").setAttribute("aria-current", sync ? "step" : "false");
-  $("step-process").setAttribute("aria-current", !sync ? "step" : "false");
-  message(
-    "progress-note",
-    running
-      ? s.paused
-        ? "Completed work is kept. Resume when ready."
-        : sync
-          ? "X API credits apply. Processing starts after the bookmark check."
-          : `${plural(s.processing_remaining, "bookmark")} left · ${processingStage === "context" ? "X API credits apply" : "local processing"}`
-      : "",
-  );
-  text(
-    "main",
-    !s.connected
-      ? "Connect X"
-      : s.paused && running
-        ? "Resume"
-        : running
-          ? "Working…"
-          : failedCount
-            ? "Review failed work"
-            : s.sample_only
-              ? "Import all bookmarks"
-              : "Sync now",
-  );
-  ($("main") as HTMLButtonElement).disabled =
-    busy || (s.connected && running && !s.paused);
-  $("main").hidden = s.connected && running && !s.paused;
-  $("pause").hidden = !running || s.paused;
-  for (const id of ["pause", "retry", "disconnect", "schedule"])
-    ($(id) as HTMLButtonElement).disabled = busy;
-  ($("retry") as HTMLButtonElement).disabled = busy;
-  $("content").hidden = !s.searchable;
-  text("index-note", `${number(s.vectors)} search segments`);
-  const content = s.content;
-  text("text-count", number(content.text?.bookmarks));
-  text("image-count", number(content.image?.sources));
-  text("video-count", number(content.video?.sources));
-  message(
-    "video-moments",
-    content.video?.segments ? `${number(content.video.segments)} moments` : "",
-  );
-  text("transcript-count", number(content.transcript?.sources));
-  const hasIssues = s.issues.length > 0 || failedCount > 0;
-  const retryable = (s.issue_counts?.retryable || 0) + failed + failedCount;
-  $("attention").hidden = !hasIssues;
-  text(
-    "attention-title",
-    retryable
-      ? "Processing needs attention"
-      : s.issue_counts?.sample
-        ? "Sample · extra sources skipped"
-        : "Source notes available",
-  );
-  message(
-    "coverage-intro",
-    s.searchable
-      ? "Searchable content is ready to use. These details describe its source coverage."
-      : "",
-  );
-  const rows = s.issues.map((issue) => ({
-    message: issueLabel(issue.message),
-    detail: plural(issue.bookmarks, "bookmark"),
-    kind: issue.kind || "retryable",
-  }));
-  for (const job of s.jobs.filter(
-    (j) => ["failed", "waiting"].includes(j.state) && j.error,
-  )) {
-    if (!rows.some((row) => row.message === job.error))
-      rows.unshift({
-        message: job.error!,
-        detail: job.kind === "sync" ? "X import" : "Local processing",
-        kind: "retryable",
-      });
-  }
-  const list = document.createDocumentFragment();
-  const groups: Record<IssueKind, string> = {
-    retryable: "Can be retried",
-    sample: "Skipped in the sample",
-    unavailable: "Unavailable at the source",
-    limitation: "Source limitations",
-  };
-  for (const [kind, label] of Object.entries(groups)) {
-    const groupRows = rows.filter((row) => row.kind === kind);
-    if (!groupRows.length) continue;
-    const heading = document.createElement("h3");
-    heading.className = "issue-heading";
-    heading.textContent = label;
-    const group = document.createElement("ul");
-    group.className = "issue-list";
-    for (const row of groupRows) {
-      const li = document.createElement("li");
-      li.textContent = row.message;
-      const meta = document.createElement("span");
-      meta.textContent = row.detail;
-      li.append(meta);
-      group.append(li);
-    }
-    list.append(heading, group);
-  }
-  $("issues").replaceChildren(list);
-  text(
-    "issues-note",
-    s.issue_groups > s.issues.length
-      ? `${number(s.issue_groups - s.issues.length)} more source details are available through ChatGPT.`
-      : s.issue_counts?.sample
-        ? "The full import will fetch the skipped sources. Counts may overlap."
-        : "Counts may overlap. Source limitations do not need retries.",
-  );
-  $("retry").hidden = !retryable;
-  text(
-    "settings-account",
-    s.connected
-      ? s.account?.username
-        ? "@" + s.account.username
-        : "Connected"
-      : "Not connected",
-  );
-  $("disconnect").hidden = !s.connected;
-  text(
-    "storage",
-    s.storage_bytes >= 1e9
-      ? `${(s.storage_bytes / 1e9).toFixed(1)} GB`
-      : `${(s.storage_bytes / 1e6).toFixed(1)} MB`,
-  );
-  text(
-    "folders",
-    s.folder_inventory?.complete
-      ? plural(s.folders, "folder")
-      : s.folders
-        ? `${number(s.folders)} · sync incomplete`
-        : "Not synced",
-  );
-  text(
-    "folder-checked",
-    s.folder_inventory?.complete
-      ? `Checked ${date(s.folder_inventory.at)}`
-      : s.folder_inventory?.in_progress
-        ? "Sync in progress"
-        : "Not checked yet",
-  );
-  ($("check-folders") as HTMLButtonElement).disabled =
-    busy ||
-    !s.connected ||
-    s.job_counts.some(
-      (j) =>
-        j.kind === "sync" &&
-        ["queued", "running", "waiting", "failed"].includes(j.state) &&
-        j.count > 0,
-    );
-  text("last-processed", date(s.last_processed));
-  text(
-    "enrichment-status",
-    `${s.enrichment?.complete || 0} of ${s.total} · Generated in ChatGPT`,
-  );
-  ($("enrich") as HTMLButtonElement).disabled = busy || !s.enrichment?.pending;
-  text(
-    "last-sync",
-    s.last_inventory
-      ? `Synced ${date(s.last_inventory.at)}`
-      : "No full import yet",
-  );
-  $("last-sync").hidden = !s.last_inventory;
-  text(
-    "usage",
-    `${plural(s.usage.requests, "X API request")} · ${plural(s.usage.records, "primary record")} recorded. Excludes expanded resources and billing adjustments; not a cost total.`,
-  );
-  text(
-    "coverage",
-    s.last_inventory?.endpoint_exhausted
-      ? "Reached the end of the bookmark pages X returned. " +
-          (s.last_inventory.partial_pages
-            ? `${s.last_inventory.partial_pages} pages had partial errors; coverage has gaps. `
-            : "") +
-          (s.last_inventory.unavailable_records
-            ? "Some records were unavailable. "
-            : "") +
-          (s.last_inventory.folders_complete
-            ? "Folders checked."
-            : s.last_inventory.folders_checked
-              ? "Folder sync incomplete; saved memberships retained."
-              : "Saved folder memberships reused.")
-      : s.last_inventory?.mode === "new"
-        ? `New bookmarks checked. ${s.last_inventory.folders_checked ? "Folders checked." : "Saved folder memberships reused."}`
-        : "Full-library coverage has not been checked.",
-  );
-  if (s.last_inventory?.unresolved_folder_ids?.length)
-    text(
-      "folders",
-      `${plural(s.folders, "folder")} · ${s.last_inventory.unresolved_folder_ids.length} unavailable items`,
-    );
-  if (s.last_inventory?.unseen_retained)
-    text(
-      "coverage",
-      $("coverage").textContent +
-        ` ${plural(s.last_inventory.unseen_retained, "saved bookmark")} absent from X’s returned pages; retained locally.`,
-    );
-  text("library-path", s.library_path);
-  message("error", actionError || connectionError || s.pause_reason || "");
-}
 async function act(fn: () => Promise<void>) {
-  if (busy) return;
-  const trigger = document.activeElement;
-  busy = true;
-  actionError = "";
-  message("notice", "");
-  if (state) render(state);
+  $("error").hidden = true;
   try {
     await fn();
-    await refresh();
   } catch (e) {
-    actionError = (e as Error).message;
-  } finally {
-    busy = false;
-    if (state) render(state);
-    else message("error", actionError);
-    if (
-      document.activeElement === document.body &&
-      trigger instanceof HTMLButtonElement
-    ) {
-      const parent = trigger.closest("dialog");
-      if (!trigger.disabled && !trigger.hidden && (!parent || parent.open))
-        trigger.focus();
-    }
+    $("error").textContent = (e as Error).message;
+    $("error").hidden = false;
   }
 }
-$("confirm-cancel").onclick = () => dialog("confirm-dialog").close("cancel");
-$("confirm-action").onclick = () => dialog("confirm-dialog").close("confirm");
-function confirmAction(
-  title: string,
-  body: string,
-  action: string,
-  destructive = false,
-): Promise<boolean> {
-  const d = dialog("confirm-dialog");
-  text("confirm-title", title);
-  text("confirm-body", body);
-  text("confirm-action", action);
-  $("confirm-action").classList.toggle("danger", destructive);
-  d.returnValue = "cancel";
-  return new Promise((resolve) => {
-    d.addEventListener("close", () => resolve(d.returnValue === "confirm"), {
-      once: true,
-    });
-    d.showModal();
-  });
+async function openUrl(url: string) {
+  if (!/^https?:\/\//.test(url)) throw new Error("Invalid source link.");
+  await app.openLink({ url });
 }
-$("import-cancel").onclick = () => dialog("import-dialog").close("cancel");
-$("import-start").onclick = () => dialog("import-dialog").close("confirm");
-function reviewImport(): Promise<boolean> {
-  const first = state?.sample_only;
-  text("import-title", first ? "Import bookmarks" : "Sync bookmarks");
-  text("import-start", first ? "Start import" : "Start sync");
-  text(
-    "import-description",
-    first
-      ? "Import all bookmarks X makes available, then prepare them for search."
-      : "Checks new bookmarks. Folders refresh if last checked over 24 hours ago. X reads may use credits.",
+async function draft(text: string) {
+  if (!extensions.message) {
+    notice(text);
+    return;
+  }
+  await extensions.message.send({
+    role: "user",
+    content: [{ type: "text", text }],
+    _meta: { "openai/message": { target: "active", send: false } },
+  });
+  notice("Request drafted in ChatGPT.");
+}
+function renderState(s: State) {
+  state = s;
+  const pending =
+    [...(s.stage_counts || []), ...(s.job_counts || [])]
+      ?.filter((x) => !["complete", "unavailable"].includes(x.state))
+      .reduce((n, x) => n + x.count, 0) || 0;
+  $("progress").hidden = !pending;
+  $("progress-text").textContent =
+    `${s.paused ? "Paused · " : ""}${pending} processing steps remaining`;
+  $("pause").hidden = s.paused;
+  $("x-account").textContent = s.connected
+    ? `@${s.account?.username}`
+    : "Not connected";
+  $("connect-x").textContent = s.connected ? "Reconnect X" : "Connect X";
+  $("chatgpt-state").textContent = s.chatgpt.connected
+    ? s.chatgpt.plan_enabled
+      ? `Connected${s.chatgpt.model ? " · " + s.chatgpt.model : ""}`
+      : "Plan permission required"
+    : "Not connected";
+  $("storage").textContent =
+    `Temporary media: ${bytes(s.temporary_bytes)} / ${bytes(s.temporary_limit)}. Evidence/index: ${bytes(s.storage_bytes + s.index_bytes)}. Models/runtime: ${bytes(s.runtime_bytes)}.`;
+  $("chatgpt-account").innerHTML =
+    '<option value="">Choose account</option>' +
+    s.chatgpt.accounts
+      .map((a) => `<option value="${esc(a.id)}">${esc(a.label)}</option>`)
+      .join("");
+  input("chatgpt-account").value = s.chatgpt.active || "";
+  if (s.chatgpt.model && !input("model").value)
+    $("model").innerHTML =
+      `<option value="${esc(s.chatgpt.model)}">${esc(s.chatgpt.model)}</option>`;
+  $("runs").innerHTML =
+    s.runs
+      .filter((r) => r.state !== "complete")
+      .map(
+        (r) =>
+          `<p class="actions"><span class="muted">${esc(date(r.created))} · ${esc(s.paused && r.state === "running" ? "paused" : r.state)}</span><button data-run="${esc(r.id)}" data-action="${r.state === "running" && !s.paused ? "pause" : "resume"}">${r.state === "running" && !s.paused ? "Pause" : "Resume"}</button><button data-run="${esc(r.id)}" data-action="retry">Retry failed</button></p>`,
+      )
+      .join("") || '<p class="muted">No processing runs.</p>';
+  for (const b of $("runs").querySelectorAll<HTMLButtonElement>("button"))
+    b.onclick = () =>
+      act(async () => {
+        await call("queue_control", {
+          action: b.dataset.action,
+          run: b.dataset.run,
+        });
+        await refresh();
+      });
+  renderIssues([
+    ...(s.stage_issues || []),
+    ...(s.jobs || []).filter((j) => ["failed", "waiting"].includes(j.state)),
+  ]);
+}
+const stageLabel = (kind: string) =>
+  (
+    ({
+      caption: "Image description",
+      video_caption: "Video description",
+      video_ocr: "Text in video",
+      text: "Search indexing",
+      context: "Reply or quote",
+      media_lookup: "Media details",
+      download: "Media download",
+      page: "Linked page",
+      transcript: "Transcript",
+      image: "Image search",
+      video: "Video search",
+      audio: "Audio search",
+      ocr: "Text in image",
+    }) as Record<string, string>
+  )[kind] || kind.replaceAll("_", " ");
+const issueText = (error = "") =>
+  (
+    ({
+      chatgpt_sign_in_required: "Reconnect ChatGPT in Settings.",
+      chatgpt_plan_consent_required: "Allow this app to use your ChatGPT plan.",
+      chatgpt_model_selection_required:
+        "Choose a description model in Settings.",
+      temporary_storage_full:
+        "Temporary storage is full. Finish pending descriptions or clear selected failed media.",
+      temporary_budget_too_small:
+        "This media needs more temporary space than the configured budget allows.",
+      source_retrieval_required:
+        "The original must be retrieved again before this step can finish.",
+      authentication_or_challenge:
+        "This page needs browser access or personal sign-in.",
+      incomplete_extraction:
+        "The readable page content could not be captured completely.",
+      partial_browser_capture:
+        "Some page content still needs browser recovery.",
+    }) as Record<string, string>
+  )[error] || error;
+function renderIssues(issues: Stage[]) {
+  $("issue-list").innerHTML =
+    issues
+      .map(
+        (s) =>
+          `<div><p>${esc(stageLabel(s.kind))} · ${esc(s.state)}</p><p class="muted">${esc(issueText(s.error))}${s.state === "waiting" && s.next_at ? " · next check " + esc(date(s.next_at)) : ""}</p><div class="actions">${s.item ? `<button data-item="${esc(s.item)}">Open bookmark</button>` : ""}${s.state === "browser" ? '<span class="muted">Desktop browser recovery needed</span>' : s.state === "unavailable" ? "" : `<button data-retry="${esc(s.item || "")}" data-run="${esc(s.run)}">Retry failed</button>`}</div></div>`,
+      )
+      .join("") || "<p>No failures need attention.</p>";
+  for (const b of $("issue-list").querySelectorAll<HTMLButtonElement>(
+    "[data-item]",
+  ))
+    b.onclick = () =>
+      act(async () => {
+        dialog("issues-dialog").close();
+        await openItem(b.dataset.item!);
+      });
+  for (const b of $("issue-list").querySelectorAll<HTMLButtonElement>(
+    "[data-retry]",
+  ))
+    b.onclick = () =>
+      act(async () => {
+        await call("queue_control", {
+          action: "retry",
+          item: b.dataset.retry || undefined,
+          run: b.dataset.retry ? undefined : b.dataset.run,
+        });
+        await refresh();
+      });
+}
+async function refresh() {
+  renderState(await call("status"));
+}
+async function load(reset = true) {
+  const request = ++epoch,
+    query = input("query").value.trim();
+  $("count").textContent = query
+    ? "Searching saved content…"
+    : "Loading bookmarks…";
+  searching = !!query;
+  (input("sort") as unknown as HTMLSelectElement).disabled = searching;
+  let result;
+  if (query) {
+    result = await call("search", {
+      query,
+      folder: input("folder").value || undefined,
+      limit: 20,
+    });
+    while (result.pending) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (request !== epoch) return;
+      result = await call("status", { query_id: result.query_id });
+    }
+    if (request !== epoch) return;
+    rows = (result.matches || []).map((r: Row) => ({
+      ...r,
+      id: r.item || r.id,
+    }));
+    next = null;
+  } else {
+    result = await call("browse", {
+      offset: reset ? 0 : next || 0,
+      folder: input("folder").value || undefined,
+      sort: input("sort").value || undefined,
+    });
+    if (request !== epoch) return;
+    rows = reset ? result.items : [...rows, ...result.items];
+    next = result.next_offset;
+  }
+  renderList();
+}
+function renderList() {
+  $("results").className = gallery ? "gallery" : "";
+  $("results").innerHTML = rows
+    .map(
+      (r) =>
+        `<button class="bookmark" data-id="${esc(r.id)}">${gallery ? `<div class="placeholder" data-thumbnail="${esc(r.id)}">${r.has_media ? "Media available at source" : "Saved bookmark"}</div>` : ""}<span class="author">${r.author ? "@" + esc(r.author) : "Saved post"}</span><div class="body">${esc(r.excerpt || r.text || r.title)}</div><span class="muted">${esc(r.state || "Search match")}${r.metrics?.like_count !== undefined ? " · " + r.metrics.like_count.toLocaleString() + " likes" : ""}</span></button>`,
+    )
+    .join("");
+  $("count").textContent = searching
+    ? `${rows.length} matching bookmarks`
+    : `${rows.length} shown${state ? " · " + state.total.toLocaleString() + " saved" : ""}`;
+  $("empty").hidden = rows.length > 0;
+  $("empty").textContent = searching
+    ? "No matching bookmarks. Try different words."
+    : state?.total
+      ? "No bookmarks in this filter."
+      : "No bookmarks yet. Connect your accounts in Settings, then start an import.";
+  $("more").hidden = next === null;
+  for (const b of $("results").querySelectorAll<HTMLButtonElement>("[data-id]"))
+    b.onclick = () => act(() => openItem(b.dataset.id!));
+  if (gallery) void thumbnails();
+}
+async function thumbnails() {
+  for (const el of Array.from(
+    $("results").querySelectorAll<HTMLElement>("[data-thumbnail]"),
+  ).slice(-30)) {
+    try {
+      const r = await call("thumbnail", { item: el.dataset.thumbnail });
+      if (r.image && el.isConnected) {
+        const im = document.createElement("img");
+        im.src = r.image;
+        im.alt = "Cached bookmark image";
+        el.replaceWith(im);
+      }
+    } catch {}
+  }
+}
+async function openItem(id: string) {
+  scroll = window.scrollY;
+  selected = await call("detail", { item: id });
+  $("list").hidden = true;
+  $("detail").hidden = false;
+  renderDetail();
+  window.scrollTo(0, 0);
+}
+function renderDetail() {
+  if (!selected) return;
+  const d = selected;
+  $("detail-author").textContent =
+    `${d.author ? "@" + d.author : "Saved post"} · ${d.state}`;
+  $("detail-text").textContent = d.text || d.title;
+  const groups = new Map<string, Evidence[]>();
+  for (const e of d.evidence) {
+    if (!e.text || e.kind === "text") continue;
+    const list = groups.get(e.kind) || [];
+    list.push(e);
+    groups.set(e.kind, list);
+  }
+  const labels: Record<string, string> = {
+    context: "Reply and quote context",
+    "alt-text": "Source alt text",
+    "linked-document": "Linked pages",
+    description: "Visual descriptions",
+    transcript: "Transcript",
+    ocr: "Text in images",
+    summary: "Summary",
+  };
+  $("evidence").innerHTML =
+    [...groups]
+      .map(
+        ([kind, entries]) =>
+          `<details ${kind === "context" ? "open" : ""}><summary>${esc(labels[kind] || kind)}</summary>${entries.map((e) => `<article><div class="muted">${e.metadata.start_seconds !== undefined ? esc(e.metadata.start_seconds.toFixed(1) + "–" + e.metadata.end_seconds?.toFixed(1) + " seconds") : ""}${e.metadata.generated ? " · AI description" : ""}</div><p class="evidence-text">${esc(e.text)}</p>${e.metadata.coverage?.length ? `<p class="muted">${esc(e.metadata.coverage.join(" "))}</p>` : ""}${e.metadata.url ? `<button class="small-link" data-url="${esc(e.metadata.url)}">Open source</button>` : ""}</article>`).join("")}</details>`,
+      )
+      .join("") +
+    (d.next_offset !== null
+      ? '<button id="more-evidence">More saved content</button>'
+      : "");
+  for (const b of $("evidence").querySelectorAll<HTMLButtonElement>(
+    "[data-url]",
+  ))
+    b.onclick = () => act(() => openUrl(b.dataset.url!));
+  const moreButton = $("more-evidence");
+  if (moreButton)
+    moreButton.onclick = () =>
+      act(async () => {
+        const more = await call("detail", {
+          item: d.id,
+          offset: d.next_offset,
+        });
+        selected = {
+          ...d,
+          evidence: [...d.evidence, ...more.evidence],
+          next_offset: more.next_offset,
+        };
+        renderDetail();
+      });
+  $("detail-info").innerHTML =
+    d.stages
+      .filter((s) => s.state !== "complete")
+      .map(
+        (s) =>
+          `<p class="muted">${esc(stageLabel(s.kind))}: ${esc(s.state)}${s.error ? " · " + esc(issueText(s.error)) : ""}</p>`,
+      )
+      .join("") +
+    `<p class="muted">${esc(d.coverage?.join("\n") || "")}</p>${
+      d.metrics
+        ?.slice(0, 3)
+        .map(
+          (m) =>
+            `<p class="muted">Observed ${esc(date(m.at))}</p><p>${Object.entries(
+              m.values,
+            )
+              .map(
+                ([k, v]) =>
+                  esc(k.replaceAll("_", " ")) +
+                  ": " +
+                  Number(v).toLocaleString(),
+              )
+              .join(" · ")}</p>`,
+        )
+        .join("") || '<p class="muted">No engagement snapshot saved yet.</p>'
+    }<p class="muted">${d.stages?.filter((s) => s.state !== "complete").length || 0} processing steps unfinished. Original media may no longer be cached.</p><button id="detail-retry">Retry failed steps</button><button id="clear-temp">Clear failed temporary media</button>`;
+  $("clear-temp").onclick = () =>
+    act(async () => {
+      const r = await call("clear_cache", { item: d.id });
+      notice(
+        `${bytes(r.removed_bytes)} cleared. Saved evidence retained; retry may need media retrieval.`,
+      );
+      await refresh();
+    });
+  $("detail-retry").onclick = () =>
+    act(async () => {
+      await call("queue_control", { action: "retry", item: d.id });
+      notice("Failed steps queued; completed evidence retained.");
+    });
+}
+$("search-form").onsubmit = (e) => {
+  e.preventDefault();
+  void act(() => load());
+};
+$("filter-toggle").onclick = () => {
+  $("filters").hidden = !$("filters").hidden;
+  $("filter-toggle").setAttribute(
+    "aria-expanded",
+    String(!$("filters").hidden),
   );
-  const d = dialog("import-dialog");
-  d.returnValue = "cancel";
-  return new Promise((resolve) => {
-    d.addEventListener("close", () => resolve(d.returnValue === "confirm"), {
-      once: true,
+};
+$("view-toggle").onclick = () => {
+  gallery = !gallery;
+  $("view-toggle").textContent = gallery ? "List" : "Gallery";
+  $("view-toggle").setAttribute("aria-pressed", String(gallery));
+  renderList();
+};
+for (const id of ["folder", "sort"]) $(id).onchange = () => act(() => load());
+$("more").onclick = () => act(() => load(false));
+$("back").onclick = () => {
+  $("detail").hidden = true;
+  $("list").hidden = false;
+  selected = undefined;
+  window.scrollTo(0, scroll);
+};
+$("use").onclick = () =>
+  act(() =>
+    draft(
+      `Use my saved bookmark bookmark://item/${selected?.id}. Read its saved evidence and source coverage before making claims. Help me apply the useful ideas.`,
+    ),
+  );
+$("source").onclick = () => act(() => openUrl(selected!.url));
+$("settings").onclick = () => dialog("settings-dialog").showModal();
+$("issues").onclick = () => dialog("issues-dialog").showModal();
+$("sync").onclick = () => dialog("sync-dialog").showModal();
+for (const [id, mode] of [
+  ["sync-new", "new"],
+  ["sync-full", "full"],
+])
+  $(id).onclick = () =>
+    act(async () => {
+      await call("sync", { mode });
+      dialog("sync-dialog").close();
+      await refresh();
     });
-    d.showModal();
-  });
-}
-async function openExternal(url: string) {
-  try {
-    await app.openLink({ url });
-  } catch {
-    message("error", "Couldn’t open the link. Try again from Settings.");
-  }
-}
-$("billing").onclick = () => void openExternal("https://console.x.com/");
-$("pricing").onclick = () =>
-  void openExternal("https://docs.x.com/x-api/getting-started/pricing");
-$("main").onclick = () =>
-  act(async () => {
-    if (!state) return;
-    if (!state.connected) {
-      const r = await call("connect_x");
-      await app.openLink({ url: String(r?.url) });
-      return;
-    }
-    const pending = state.job_counts.some(
-      (j) => ["queued", "running", "waiting"].includes(j.state) && j.count,
-    );
-    if (state.paused && pending) {
-      await call("queue_control", { action: "resume" });
-      return;
-    }
-    if (state.job_counts.some((j) => j.state === "failed" && j.count)) {
-      dialog("coverage-dialog").showModal();
-      return;
-    }
-    if (!(await reviewImport())) return;
-    await call("sync");
-  });
 $("pause").onclick = () =>
   act(async () => {
     await call("queue_control", { action: "pause" });
+    await refresh();
   });
-$("retry").onclick = () =>
+$("connect-x").onclick = () =>
   act(async () => {
-    if (
-      !(await confirmAction(
-        "Retry failed work?",
-        "Retries failed downloads and processing, reusing completed work. X context requests may use credits. Sample omissions and source limitations are excluded.",
-        "Retry",
-      ))
-    )
-      return;
-    dialog("coverage-dialog").close();
-    await call("queue_control", { action: "retry" });
+    const r = await call("connect_x");
+    await openUrl(r.url);
   });
-$("settings").onclick = () => dialog("settings-dialog").showModal();
-$("check-folders").onclick = () =>
+$("connect-chatgpt").onclick = () =>
   act(async () => {
-    if (
-      !(await confirmAction(
-        "Check X folders?",
-        "Updates folders for saved bookmarks only. X reads may use credits.",
-        "Check folders",
-      ))
-    )
-      return;
-    await call("sync_folders");
+    const r = await call("connect_chatgpt");
+    await openUrl(r.url);
   });
-$("review").onclick = () => dialog("coverage-dialog").showModal();
-$("disconnect").onclick = () =>
+$("chatgpt-account").onchange = () =>
   act(async () => {
-    if (
-      !(await confirmAction(
-        "Disconnect your X account?",
-        "Stops syncing. Your local library is kept.",
-        "Disconnect",
-        true,
-      ))
-    )
-      return;
-    await call("disconnect_x");
-    dialog("settings-dialog").close();
-  });
-$("enrich").onclick = () =>
-  act(async () => {
-    const prompt =
-      "Use Bookmark Library's library skill to generate and save evidence-grounded AI summaries, tags and entities for already processed bookmarks that need enrichment. Read all evidence pages and preserve source limitations. Do not import bookmarks, sync X or fetch missing sources.";
-    if (!extensions.message) {
-      message(
-        "notice",
-        "Ask ChatGPT to enrich my already processed bookmarks without importing or fetching sources.",
-      );
-      return;
+    if (input("chatgpt-account").value) {
+      await call("select_chatgpt", { account: input("chatgpt-account").value });
+      await refresh();
     }
-    await extensions.message.send({
-      role: "user",
-      content: [{ type: "text", text: prompt }],
-      _meta: { "openai/message": { target: "active", send: false } },
-    });
-    dialog("settings-dialog").close();
-    message(
-      "notice",
-      "Request drafted in ChatGPT. Send it to enrich saved bookmarks.",
-    );
   });
-$("schedule").onclick = () =>
+$("load-models").onclick = () =>
   act(async () => {
-    if (!extensions.message) {
-      dialog("settings-dialog").close();
-      message("notice", "Ask ChatGPT: Help me schedule Bookmark Library sync.");
-      return;
+    const r = await call("chatgpt_models");
+    $("model").innerHTML =
+      '<option value="">Select a model</option>' +
+      r.models
+        .map(
+          (m: { id: string; name: string }) =>
+            `<option value="${esc(m.id)}">${esc(m.name)}</option>`,
+        )
+        .join("");
+    input("model").value = state?.chatgpt.model || "";
+  });
+$("model").onchange = () =>
+  act(async () => {
+    if (input("model").value) {
+      await call("select_chatgpt", { model: input("model").value });
+      await refresh();
     }
-    await extensions.message.send({
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: "Help me manage automatic Bookmark Library sync. Check for an existing schedule first. Explain that sync checks new bookmarks, refreshes folders if their last check is over 24 hours old, and reuses saved sources; X requests may still use credits. Ask for my preferred cadence, then use the available automation tool to create or update it. The Mac and ChatGPT must be available. Keep it quiet unless action is needed. Do not start an import now.",
-        },
-      ],
-      _meta: { "openai/message": { target: "active", send: false } },
-    });
-    dialog("settings-dialog").close();
-    message(
-      "notice",
-      "Request drafted in ChatGPT. Send it to set up or change the schedule.",
+  });
+$("disconnect-chatgpt").onclick = () =>
+  act(async () => {
+    const r = await call("disconnect_chatgpt");
+    notice(
+      r.remote_revocation_confirmed
+        ? "ChatGPT disconnected."
+        : "Local access removed. Remote revocation was not confirmed; review connected apps in ChatGPT.",
     );
+    await refresh();
   });
-for (const button of document.querySelectorAll<HTMLButtonElement>(
-  "[data-close]",
-))
-  button.onclick = () => dialog(button.dataset.close!).close();
-for (const d of document.querySelectorAll("dialog"))
-  d.addEventListener("click", (e) => {
-    if (e.target !== d) return;
-    const box = d.getBoundingClientRect();
-    if (
-      e.clientX < box.left ||
-      e.clientX > box.right ||
-      e.clientY < box.top ||
-      e.clientY > box.bottom
-    )
-      d.close("cancel");
+$("usage").onclick = () =>
+  act(() => openUrl("https://chatgpt.com/settings/usage"));
+$("export").onclick = () =>
+  act(async () => {
+    const r = await call("export_diagnostics");
+    $("report").textContent = r.summary + "\nSaved locally: " + r.path;
   });
+$("browser-recovery").onclick = () =>
+  act(() =>
+    draft(
+      "Recover Bookmark Library pages in browser_pending. Use an appropriate existing browser profile; in-app Browser does not share Chrome logins. Read rendered content and save it with browser_capture. Ask me only for personal login/consent. Keep challenges and partial extraction visible. Do not import more bookmarks or follow links inside pages.",
+    ),
+  );
+for (const b of document.querySelectorAll<HTMLButtonElement>("[data-close]"))
+  b.onclick = () => dialog(b.dataset.close!).close();
 function theme(ctx: ReturnType<App["getHostContext"]>) {
   if (ctx?.theme) applyDocumentTheme(ctx.theme);
   if (ctx?.styles?.variables) applyHostStyleVariables(ctx.styles.variables);
 }
 app.addEventListener("hostcontextchanged", theme);
 app.ontoolresult = (r) => {
-  if (r.isError) {
-    actionError =
-      r.content
-        ?.filter((c: { type: string; text?: string }) => c.type === "text")
-        .map((c: { type: string; text?: string }) => c.text)
-        .join(" ") || "Setup required.";
-    message("error", actionError);
-  } else if (r.structuredContent)
-    render(r.structuredContent as unknown as LibraryState);
+  if (
+    !r.isError &&
+    r.structuredContent &&
+    "backend_version" in r.structuredContent
+  )
+    renderState(r.structuredContent as unknown as State);
 };
 await app.connect();
 theme(app.getHostContext());
-await refresh();
+await act(async () => {
+  await refresh();
+  const c = await call("collections");
+  $("folder").innerHTML =
+    '<option value="">All folders</option>' +
+    c.folders
+      .map(
+        (f: { id: string; name: string }) =>
+          `<option value="${esc(f.id)}">${esc(f.name)}</option>`,
+      )
+      .join("");
+  await load();
+});
 setInterval(() => {
-  if (!document.hidden && !busy) void refresh();
+  if (!document.hidden) void refresh().catch(() => {});
 }, 5000);

@@ -4,11 +4,33 @@ from store import HOME
 REVISION = "914f7f89142e33e77833254d9c9b90c3cef7303b"
 FINGERPRINT = "embeddinggemma2:" + REVISION + ":bf16-mps-mean768:v1"
 LOCK = threading.RLock()
+SCHEDULE = threading.Condition()
+BUSY = False
+QUERIES = 0
 MODEL = None
 PROCESSOR = None
 
 
-def encode(**kwargs):
+def encode(priority=False, **kwargs):
+    global BUSY, QUERIES
+    with SCHEDULE:
+        if priority:
+            QUERIES += 1
+        try:
+            SCHEDULE.wait_for(lambda: not BUSY and (priority or QUERIES == 0))
+            BUSY = True
+        finally:
+            if priority:
+                QUERIES -= 1
+    try:
+        return _encode(**kwargs)
+    finally:
+        with SCHEDULE:
+            BUSY = False
+            SCHEDULE.notify_all()
+
+
+def _encode(**kwargs):
     global MODEL, PROCESSOR
     with LOCK:
         import torch

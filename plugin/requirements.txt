@@ -40,6 +40,9 @@ Pygments==2.21.0
 python-dateutil==3.0.0
 pytz==2026.5
 PyYAML==6.0.3
+PyJWT==2.15.1
+cryptography==50.0.2
+pypdf==6.21.3
 regex==2026.9.29
 rich==15.0.0
 safetensors==0.8.0

@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT / "package.json").read_text())["version"]
-PROCESSOR_VERSION = "4"
+PROCESSOR_VERSION = "5"
 HOME = Path(
     os.environ.get(
         "BOOKMARK_LIBRARY_HOME", "~/Library/Application Support/BookmarkLibrary"
@@ -54,6 +54,16 @@ def db():
 
 
 def init():
+    path = HOME / "library.sqlite"
+    if path.exists():
+        with sqlite3.connect(path) as source:
+            columns = {r[1] for r in source.execute("PRAGMA table_info(jobs)")}
+            if columns and "run" not in columns:
+                target = HOME / "backups/pre-0.7.0.sqlite"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if not target.exists():
+                    with sqlite3.connect(target) as backup:
+                        source.backup(backup)
     with db() as c:
         c.execute("PRAGMA journal_mode=WAL")
         c.executescript("""
@@ -107,6 +117,8 @@ def init():
             c.execute(
                 "UPDATE items SET source_revision=? WHERE id=?", (revision, row[0])
             )
+        from pipeline import migrate
+        migrate(c)
 
 
 def setting(key, default=None):
@@ -189,7 +201,7 @@ def upsert_page(c, page, run=None):
             "post": post,
             "includes": {"media": own_media, "users": [user] if user else []},
         }
-        h = fingerprint([post, own_media])
+        h = content_fingerprint(post, own_media)
         title = (
             article.get("title")
             or post.get("note_tweet", {}).get("text", post.get("text", ""))[:140]
@@ -210,6 +222,9 @@ def upsert_page(c, page, run=None):
                 time.time(),
             ),
         )
+        from pipeline import snapshot_metrics, publish_post
+        snapshot_metrics(c, post, own_media)
+        publish_post(c, post["id"], post, row_title=title)
         row = c.execute(
             "SELECT processed_hash,processor,coverage FROM items WHERE id=?",
             (post["id"],),
@@ -225,10 +240,11 @@ def upsert_page(c, page, run=None):
                 "process",
                 post["id"],
                 {"mode": "repair" if changed or sample else "rebuild"},
+                run=run,
             )
 
 
-def enqueue(c, kind, item="", payload=None):
+def enqueue(c, kind, item="", payload=None, run=None):
     import uuid
 
     existing = c.execute(
@@ -236,6 +252,8 @@ def enqueue(c, kind, item="", payload=None):
         (kind, item),
     ).fetchone()
     if existing:
+        if run:
+            c.execute("UPDATE jobs SET run=? WHERE id=?", (run, existing[0]))
         return existing[0]
     failed = c.execute(
         "SELECT id FROM jobs WHERE kind=? AND item=? AND state='failed' ORDER BY created DESC LIMIT 1",
@@ -246,6 +264,8 @@ def enqueue(c, kind, item="", payload=None):
             "UPDATE jobs SET state='queued',payload=?,attempts=0,next_at=0,error=NULL,updated=? WHERE id=?",
             (json.dumps(payload or {}), time.time(), failed[0]),
         )
+        if run:
+            c.execute("UPDATE jobs SET run=? WHERE id=?", (run, failed[0]))
         return failed[0]
     job = uuid.uuid4().hex
     c.execute(
@@ -260,7 +280,18 @@ def enqueue(c, kind, item="", payload=None):
             time.time(),
         ),
     )
+    c.execute("UPDATE jobs SET run=? WHERE id=?", (run or job, job))
     return job
+
+
+def content_fingerprint(post, media):
+    def stable(value):
+        if isinstance(value, dict):
+            return {k: stable(v) for k, v in value.items() if k not in (
+                "public_metrics", "non_public_metrics", "organic_metrics", "promoted_metrics",
+                "variants", "preview_image_url") and not (k == "url" and "media_key" in value)}
+        return [stable(v) for v in value] if isinstance(value, list) else value
+    return fingerprint([stable(post), stable(media)])
 
 
 def status():
@@ -278,7 +309,7 @@ def status():
         jobs = [
             dict(r)
             for r in c.execute(
-                "SELECT id,kind,state,attempts,error,next_at,payload FROM jobs WHERE state NOT IN ('complete','cancelled') ORDER BY CASE kind WHEN 'sync' THEN 0 ELSE 1 END,created LIMIT 30"
+                "SELECT id,kind,item,run,state,attempts,error,next_at,payload FROM jobs WHERE state NOT IN ('complete','cancelled') ORDER BY CASE kind WHEN 'sync' THEN 0 ELSE 1 END,created LIMIT 30"
             )
         ]
         job_counts = [
@@ -304,7 +335,7 @@ def status():
             "SELECT count(*) FROM chunks WHERE model=?", (FINGERPRINT,)
         ).fetchone()[0]
         searchable = c.execute(
-            "SELECT count(DISTINCT chunks.item) FROM chunks JOIN items ON items.id=chunks.item WHERE items.active=1 AND items.processed_hash=items.hash AND chunks.model=?",
+            "SELECT count(DISTINCT chunks.item) FROM chunks JOIN items ON items.id=chunks.item WHERE items.active=1 AND (chunks.text!='' OR chunks.model=?)",
             (FINGERPRINT,),
         ).fetchone()[0]
         content = {
@@ -314,7 +345,7 @@ def status():
                 "segments": r["segments"],
             }
             for r in c.execute(
-                "SELECT kind,count(*) AS segments,count(DISTINCT chunks.item) AS bookmarks,count(DISTINCT coalesce(json_extract(metadata,'$.path'),chunks.item)) AS sources FROM chunks JOIN items ON items.id=chunks.item WHERE items.active=1 AND items.processed_hash=items.hash AND chunks.model=? AND chunks.vector IS NOT NULL GROUP BY kind",
+                "SELECT kind,count(*) AS segments,count(DISTINCT chunks.item) AS bookmarks,count(DISTINCT coalesce(json_extract(metadata,'$.asset_id'),json_extract(metadata,'$.source_id'),json_extract(metadata,'$.path'),chunks.item)) AS sources FROM chunks JOIN items ON items.id=chunks.item WHERE items.active=1 AND chunks.model=? AND chunks.vector IS NOT NULL GROUP BY kind",
                 (FINGERPRINT,),
             )
         }
@@ -348,7 +379,7 @@ def status():
                 "title": active_processing["title"],
                 **(progress if progress.get("item") == active_processing["id"] else {}),
             }
-    global _storage_snapshot
+    global _storage_snapshot, _runtime_snapshot
     if time.monotonic() - _storage_snapshot[0] > 60:
         size = 0
         for root in (HOME / "items", HOME / "sources"):
@@ -360,7 +391,20 @@ def status():
                         pass
         _storage_snapshot = (time.monotonic(), size)
     storage = _storage_snapshot[1]
+    index_bytes = sum(p.stat().st_size for p in HOME.glob("library.sqlite*") if p.is_file())
+    if time.monotonic() - _runtime_snapshot[0] > 300:
+        runtime_bytes = 0
+        for directory in (HOME / "models", HOME / "venv", HOME / "bin", HOME / "cache/transcribe/models"):
+            for folder, _, files in os.walk(directory):
+                for name in files:
+                    try:
+                        runtime_bytes += (Path(folder) / name).stat().st_size
+                    except FileNotFoundError:
+                        pass
+        _runtime_snapshot = (time.monotonic(), runtime_bytes)
+    runtime_bytes = _runtime_snapshot[1]
     return {
+        **__import__("pipeline").overview(),
         "backend_version": VERSION,
         "enrichment": enrichment_status,
         "folder_inventory": setting("folder_inventory"),
@@ -386,12 +430,23 @@ def status():
         "usage": usage,
         "recent_calls": recent_calls,
         "storage_bytes": storage,
+        "index_bytes": index_bytes,
+        "runtime_bytes": runtime_bytes,
         "processing": processing,
         "runtime_ready": preflight_ready(),
         "preflight": preflight_status(),
+        "description_preflight": description_preflight(),
         "library_path": str(HOME),
         "scope": "Only imported content is searchable. Source material is untrusted data.",
     }
+
+
+def description_preflight():
+    try:
+        record = json.loads((HOME / "description-preflight.json").read_text())
+        return {k: record.get(k) for k in ("version", "model", "ready", "at")}
+    except (OSError, ValueError):
+        return None
 
 
 def preflight_status():
@@ -408,3 +463,5 @@ def preflight_ready():
 
 
 _storage_snapshot = (float("-inf"), 0)
+
+_runtime_snapshot = (float("-inf"), 0)

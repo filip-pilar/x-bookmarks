@@ -85,6 +85,7 @@ def main():
     check("parakeet_transcription", speech)
     report.update(ready=True, at=time.time())
     atomic(target, report)
+    __import__("shutil").rmtree(folder)
     print(json.dumps(report))
 
 

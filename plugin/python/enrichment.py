@@ -49,7 +49,7 @@ def folder_check(c, item):
 
 
 def processing_pending(c, item):
-    return bool(c.execute(
+    return bool(c.execute("SELECT 1 FROM stages WHERE item=? AND state NOT IN ('complete','unavailable') LIMIT 1", (item,)).fetchone() or c.execute(
         "SELECT 1 FROM jobs WHERE kind='process' AND item=? AND state IN ('queued','running','waiting','failed') LIMIT 1",
         (item,),
     ).fetchone())
@@ -93,7 +93,7 @@ def pending(args):
         rows = [
             dict(r)
             for r in c.execute(
-                "SELECT i.id,i.title,i.source_revision,i.coverage,CASE WHEN e.item IS NULL THEN 'missing' ELSE 'stale' END AS enrichment_state FROM items i LEFT JOIN enrichment e ON e.item=i.id WHERE i.active=1 AND i.hash=i.processed_hash AND i.source_revision!='' AND (e.item IS NULL OR e.revision!=i.source_revision) AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.kind='process' AND j.item=i.id AND j.state IN ('queued','running','waiting','failed')) ORDER BY i.id DESC LIMIT ?",
+                "SELECT i.id,i.title,i.source_revision,i.coverage,CASE WHEN e.item IS NULL THEN 'missing' ELSE 'stale' END AS enrichment_state FROM items i LEFT JOIN enrichment e ON e.item=i.id WHERE i.active=1 AND i.hash=i.processed_hash AND i.source_revision!='' AND (e.item IS NULL OR e.revision!=i.source_revision) AND NOT EXISTS (SELECT 1 FROM stages s WHERE s.item=i.id AND s.state NOT IN ('complete','unavailable')) AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.kind='process' AND j.item=i.id AND j.state IN ('queued','running','waiting','failed')) ORDER BY i.id DESC LIMIT ?",
                 (limit,),
             )
         ]

@@ -5,7 +5,7 @@ from enrichment import annotation, folders, folder_check
 
 
 def predicate(args):
-    where = ["i.active=1", "i.processed_hash=i.hash"]
+    where = ["i.active=1"]
     params = []
     where.append(
         "(c.kind!='summary' OR EXISTS(SELECT 1 FROM enrichment e WHERE e.item=i.id AND e.revision=i.source_revision))"
@@ -92,12 +92,12 @@ def search(args):
                     [match] + params,
                 )
             ]
-    if not exists:
+    if not exists and not hits:
         return {
             "matches": [],
             "note": "No processed content matches this scope. Check library status.",
         }
-    q = encode(text="task: search result | query: " + query)[0]
+    q = encode(priority=True, text="task: search result | query: " + query)[0] if exists else None
     keyword = {v: i + 1 for i, v in enumerate(hits)}
     # Scan bounded vector batches; keep only the best three passages per candidate item.
     best = {}
@@ -106,7 +106,7 @@ def search(args):
             f"SELECT c.id,c.item,c.vector FROM chunks c JOIN items i ON i.id=c.item WHERE {where} AND c.model=?",
             params + [FINGERPRINT],
         )
-        while batch := cursor.fetchmany(512):
+        while exists and (batch := cursor.fetchmany(512)):
             valid = [
                 (r, np.frombuffer(r["vector"], dtype=np.float32))
                 for r in batch
@@ -133,7 +133,12 @@ def search(args):
                     :limit
                 ]
                 best = {item: best[item] for item in retained}
-        ranked = heapq.nlargest(limit, (v for heap in best.values() for v in heap))
+        # Lexical evidence remains usable before local embedding work finishes.
+        for chunk_id, position in keyword.items():
+            row = c.execute("SELECT item FROM chunks WHERE id=?", (chunk_id,)).fetchone()
+            if row and row[0] not in best:
+                best[row[0]] = [(0.5 + .08 / position, chunk_id, 0.0)]
+        ranked = heapq.nlargest(limit, (max(heap) for heap in best.values() if heap))
         matches = []
         for _, chunk_id, score in ranked:
             r = c.execute(
@@ -160,7 +165,7 @@ def search(args):
                     "folders": folders(c, r["item"]),
                     "folder_check": folder_check(c, r["item"]),
                     "enrichment": annotation(c, r["item"]),
-                    "ai_generated": r["kind"] == "summary",
+                    "ai_generated": r["kind"] in ("summary", "description"),
                     "supporting_evidence": [
                         dict(v)
                         for v in c.execute(
@@ -259,6 +264,10 @@ def read(args):
         enrichment = annotation(c, item)
     if not r:
         raise ValueError("Bookmark is not in the current local library.")
+    if r["processor"] == "5":
+        result = __import__("library").detail({"item": item, "offset": offset})
+        result.update(uri=uri, offset=offset)
+        return result
     path = HOME / "items" / item / "content.md"
     if r["processed_hash"] != r["hash"] or not path.exists():
         return {

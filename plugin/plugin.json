@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bookmark-library",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Import X bookmarks and recall their text, images, videos and speech with local search.",
   "author": {
     "name": "Phil"
@@ -19,7 +19,7 @@
       "interface": {
         "displayName": "Bookmark Library",
         "shortDescription": "Your X bookmarks, searchable locally",
-        "longDescription": "Connect X, import or sync bookmarks, and search their text, images, videos and transcripts from ChatGPT. Media processing and embeddings run on your Apple silicon Mac.",
+        "longDescription": "Browse and search saved posts, linked pages, images, video moments and transcripts. OCR, transcription and embeddings run on your Mac; visual descriptions use your authorized ChatGPT plan. Temporary media is removed after its required evidence is saved.",
         "developerName": "Phil",
         "category": "Productivity",
         "capabilities": [

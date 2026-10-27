@@ -40,7 +40,6 @@ def resume_sync(c, mode):
 
 
 def sync_folders():
-    require_runtime()
     if not config().get("account"):
         raise RuntimeError("Connect X first.")
     with db() as c:
@@ -62,7 +61,7 @@ def sync_folders():
                 "check_folders": True,
             },
         )
-    set_setting("paused", False)
+    __import__("pipeline").authorize(job)
     WAKE.set()
     return {
         "job_id": job,
@@ -74,7 +73,6 @@ def sync_folders():
 
 
 def sync(mode="new"):
-    require_runtime()
     if mode not in ("new", "full"):
         raise ValueError("Sync mode must be new or full.")
     if not config().get("account"):
@@ -102,7 +100,7 @@ def sync(mode="new"):
                 "check_folders": check_folders,
             },
         )
-    set_setting("paused", False)
+    __import__("pipeline").authorize(job)
     WAKE.set()
     return {"job_id": job, "mode": mode, "started": True, "resumed": bool(existing)}
 
@@ -387,12 +385,7 @@ def process_saved(mode="rebuild", item=None):
         raise ValueError("Unknown processing mode.")
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
-        if c.execute(
-            "SELECT 1 FROM jobs WHERE state IN ('queued','running','waiting') OR (kind='sync' AND state='failed') LIMIT 1"
-        ).fetchone():
-            raise RuntimeError(
-                "Finish or resume the existing queue before starting another operation."
-            )
+        run = __import__("uuid").uuid4().hex
         rows = c.execute(
             "SELECT id FROM items WHERE active=1" + (" AND id=?" if item else ""),
             (item,) if item else (),
@@ -400,33 +393,30 @@ def process_saved(mode="rebuild", item=None):
         if item and not rows:
             raise ValueError("Bookmark is not in this library.")
         for row in rows:
-            enqueue(c, "process", row[0], {"mode": mode, "retry": mode == "repair"})
-    set_setting("paused", False)
+            enqueue(c, "process", row[0], {"mode": mode, "retry": mode == "repair"}, run=run)
+    __import__("pipeline").authorize(run)
     WAKE.set()
-    return {"queued": len(rows), "mode": mode, "network_allowed": mode != "rebuild"}
+    return {"queued": len(rows), "mode": mode, "run": run, "network_allowed": mode != "rebuild"}
 
 
-def control(action):
-    if action in ("resume", "retry"):
-        require_runtime()
-    if action in ("pause", "resume"):
-        set_setting("paused", action == "pause")
-        if action == "resume":
-            set_setting("pause_reason", "")
+def control(action, run=None, item=None):
+    if action == "pause":
+        if run:
+            with db() as c:
+                c.execute("UPDATE runs SET state='paused' WHERE id=?", (run,))
+        else:
+            set_setting("paused", True)
+    elif action == "resume":
+        if not run:
+            raise ValueError("Select the run to resume.")
+        __import__("pipeline").authorize(run)
+        set_setting("pause_reason", "")
     elif action == "retry":
-        with db() as c:
-            c.execute(
-                "UPDATE jobs AS failed SET state='queued',attempts=0,next_at=0,error=NULL,payload=CASE WHEN kind='process' THEN json_set(payload,'$.retry',1) ELSE payload END "
-                "WHERE state='failed' AND NOT EXISTS (SELECT 1 FROM jobs active WHERE active.kind=failed.kind AND active.item=failed.item AND active.state IN ('queued','running','waiting'))"
-            )
-            for row in c.execute(
-                "SELECT id,coverage FROM items WHERE active=1 AND state='partial'"
-            ).fetchall():
-                if any(
-                    coverage_kind(w) == "retryable" for w in json.loads(row["coverage"])
-                ):
-                    enqueue(c, "process", row["id"], {"retry": True})
-        set_setting("paused", False)
+        if not run and not item:
+            raise ValueError("Select the run or bookmark to retry.")
+        result = __import__("pipeline").retry(item, run)
+        WAKE.set()
+        return {"action": action, **result}
     else:
         raise ValueError("Unknown queue control.")
     WAKE.set()
@@ -441,9 +431,9 @@ def loop(kind):
                 c.execute("BEGIN IMMEDIATE")
                 row = c.execute(
                     "SELECT * FROM jobs WHERE kind=? AND state IN ('queued','waiting') AND next_at<=? "
-                    "AND (?='sync' OR NOT EXISTS(SELECT 1 FROM jobs WHERE kind='sync' AND state IN ('queued','running','waiting'))) "
+                    "AND EXISTS(SELECT 1 FROM runs WHERE runs.id=jobs.run AND runs.state='running') "
                     "ORDER BY created LIMIT 1",
-                    (kind, time.time(), kind),
+                    (kind, time.time()),
                 ).fetchone()
                 if row:
                     job = dict(row)
@@ -459,14 +449,14 @@ def loop(kind):
             if job["kind"] == "sync":
                 sync_step(job)
             else:
-                from processing import process
+                from pipeline import prepare as process
 
                 payload = json.loads(job["payload"])
                 process(
                     job["item"],
                     retry=bool(payload.get("retry")),
                     mode=payload.get("mode", "repair"),
-                    generation=job["id"],
+                    generation=job["run"],
                 )
                 with db() as c:
                     c.execute("BEGIN IMMEDIATE")
@@ -476,19 +466,14 @@ def loop(kind):
                     )
                     current = c.execute("SELECT hash,processed_hash FROM items WHERE id=?", (job["item"],)).fetchone()
                     if current and current["hash"] != current["processed_hash"]:
-                        enqueue(c, "process", job["item"], {"mode": "repair"})
+                        enqueue(c, "process", job["item"], {"mode": "repair"}, run=job["run"])
                         c.execute("UPDATE items SET state='pending' WHERE id=?", (job["item"],))
         except Exception as e:
-            from processing import Paused
-
             from sources import DiskSpaceError
 
-            if isinstance(e, (Paused, DiskSpaceError)):
-                if isinstance(e, DiskSpaceError):
-                    set_setting("paused", True)
-                    set_setting("pause_reason", str(e))
+            if isinstance(e, DiskSpaceError):
                 with db() as c:
-                    c.execute("UPDATE jobs SET state='queued' WHERE id=?", (job["id"],))
+                    c.execute("UPDATE jobs SET state='waiting',next_at=?,error='temporary_storage_full' WHERE id=?", (time.time() + 300, job["id"]))
                 continue
             attempts = job["attempts"] + 1
             when = (
@@ -506,12 +491,6 @@ def loop(kind):
                 if not terminal and (isinstance(e, RetryLater) or attempts < 3)
                 else "failed"
             )
-            if terminal and e.status in (401, 402):
-                set_setting("paused", True)
-                set_setting(
-                    "pause_reason",
-                    "X access or credits need attention. Resolve the issue, then retry failed work.",
-                )
             from diagnostics import safe_error
             error = safe_error(e)
             with db() as c:
@@ -524,5 +503,6 @@ def loop(kind):
                         "UPDATE items SET state=? WHERE id=?", ("error", job["item"])
                     )
         finally:
+            __import__("pipeline").finish_runs()
             if job["kind"] == "process":
                 set_setting("processing", None)

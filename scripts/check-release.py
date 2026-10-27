@@ -35,16 +35,16 @@ if not (ROOT / "LICENSE").read_text().startswith("MIT License"):
 if args.archive:
     base = "bookmark-library-release/"
     prefix = base + "plugins/bookmark-library/"
-    required = {base + ".agents/plugins/marketplace.json", base + "SETUP_PROMPT.md", base + "UPDATE_PROMPT.md"}
+    required = {base + ".agents/plugins/marketplace.json", base + "SETUP_PROMPT.md", base + "UPDATE_PROMPT.md", base + "KNOWN_ISSUES.md", base + "ARCHITECTURE.md"}
     required.update(prefix + name for name in (
         "LICENSE", ".codex-plugin/plugin.json", ".mcp.json", "package.json",
         "dist/server.mjs", "dist/panel.html", "scripts/build-native.py", "scripts/native.swift", "scripts/preflight.py",
         "vendor/transcribe/runtime/Package.swift", "vendor/transcribe/runtime/Package.resolved",
         "vendor/transcribe/runtime/Sources/TranscribeAudio/main.swift",
-        "scripts/setup.py", "scripts/launch.sh", "skills/setup/SKILL.md",
+        "scripts/setup.py", "scripts/verify-description.py", "scripts/diagnostics.py", "scripts/launch.sh", "skills/setup/SKILL.md",
     ))
     forbidden_names = {"x-client.json", "config.json", "runtime.json", "service.json", ".env"}
-    forbidden_dirs = {"node_modules", ".git", ".venv", ".build", "models", "items", "sources", "scans", "bin"}
+    forbidden_dirs = {"node_modules", ".git", ".venv", ".build", "models", "items", "sources", "scans", "bin", "private", "reports", "cache", "backups"}
     with ZipFile(args.archive) as archive:
         if archive.testzip():
             raise SystemExit("ZIP CRC validation failed")

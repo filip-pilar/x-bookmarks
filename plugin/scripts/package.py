@@ -17,7 +17,7 @@ required = [
     "vendor/transcribe/runtime/Package.swift", "vendor/transcribe/runtime/Package.resolved",
 ]
 missing = [name for name in required if not (root / name).is_file()]
-for name in ("LICENSE", "docs/SETUP_PROMPT.md", "docs/UPDATE_PROMPT.md"):
+for name in ("LICENSE", "docs/SETUP_PROMPT.md", "docs/UPDATE_PROMPT.md", "docs/KNOWN_ISSUES.md", "docs/ARCHITECTURE.md"):
     if not (root.parent / name).is_file():
         missing.append("../" + name)
 if missing:
@@ -48,7 +48,7 @@ market = release / ".agents/plugins"
 market.mkdir(parents=True, exist_ok=True)
 (market / "marketplace.json").write_text(json.dumps(marketplace, indent=2) + "\n")
 shutil.copy2(root.parent / "LICENSE", dest / "LICENSE")
-for name in ("SETUP_PROMPT.md", "UPDATE_PROMPT.md"):
+for name in ("SETUP_PROMPT.md", "UPDATE_PROMPT.md", "KNOWN_ISSUES.md", "ARCHITECTURE.md"):
     shutil.copy2(root.parent / "docs" / name, release / name)
 archive = shutil.make_archive(str(release), "zip", release.parent, release.name)
 print(archive)

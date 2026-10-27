@@ -1,859 +1,428 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Bookmark Library</title>
     <style>
       :root {
+        font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+        color: var(--color-text-primary, #242424);
+        background: var(--color-background-primary, #fff);
+        font-size: 15px;
         color-scheme: light dark;
-        font-family: var(
-          --font-sans,
-          -apple-system,
-          BlinkMacSystemFont,
-          "SF Pro Text",
-          system-ui,
-          sans-serif
-        );
-        color: var(--color-text-primary, light-dark(#242424, #ededed));
-        background: var(--color-background-primary, light-dark(#fff, #212121));
-        --surface: var(--color-background-primary, light-dark(#fff, #212121));
-        --secondary: var(--color-text-secondary, light-dark(#737373, #a6a6a6));
-        --line: var(--color-border-secondary, light-dark(#e9e9e9, #383838));
-        --soft: var(--color-background-secondary, light-dark(#f5f5f5, #2c2c2c));
-        --accent: var(--color-text-primary, light-dark(#242424, #ededed));
-        --inverse: var(--color-text-inverse, light-dark(#fff, #212121));
-        --good: var(--color-text-success, light-dark(#35845b, #79bf96));
-        --amber: var(--color-text-warning, light-dark(#986a24, #d1ad70));
-        font-size: 14px;
-        -webkit-font-smoothing: antialiased;
       }
       * {
         box-sizing: border-box;
       }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 960px;
+        margin: auto;
+        padding: 28px;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        border: 1px solid var(--color-border-primary, #ddd);
+        background: transparent;
+        border-radius: 10px;
+        padding: 9px 13px;
+      }
+      button:hover {
+        background: var(--color-background-secondary, #f3f3f3);
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 2px solid #4285f4;
+        outline-offset: 2px;
+      }
+      button:disabled {
+        opacity: 0.5;
+      }
+      header,
+      .actions,
+      .search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      header {
+        justify-content: space-between;
+        margin-bottom: 24px;
+      }
+      h1 {
+        font-size: 25px;
+        letter-spacing: -0.5px;
+        margin: 0;
+      }
+      h2 {
+        font-size: 20px;
+        margin: 0;
+      }
+      h3 {
+        font-size: 15px;
+        margin: 20px 0 10px;
+      }
+      .actions {
+        flex-wrap: wrap;
+      }
+      .muted {
+        color: var(--color-text-secondary, #777);
+        font-size: 13px;
+      }
+      input[type="search"] {
+        min-width: 0;
+        flex: 1;
+        border: 1px solid var(--color-border-primary, #ddd);
+        border-radius: 12px;
+        padding: 13px 15px;
+        background: transparent;
+      }
+      select {
+        padding: 9px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        background: var(--color-background-primary, #fff);
+      }
       [hidden] {
         display: none !important;
       }
-      body {
-        margin: 0;
-        padding: 0;
-      }
-      main {
-        max-width: 576px;
-        margin: 0 auto;
-        padding: 48px 28px 32px;
-      }
-      h1,
-      h2,
-      h3,
-      p {
-        margin: 0;
-      }
-      p {
-        line-height: 1.5;
-      }
-      button {
-        font: inherit;
-        cursor: pointer;
-        color: inherit;
-        border: 0;
-        background: transparent;
-        border-radius: var(--border-radius-md, 8px);
-        min-height: 36px;
-        padding: 8px 12px;
-        font-weight: 500;
-        white-space: nowrap;
-      }
-      button:disabled {
-        opacity: 0.45;
-        cursor: default;
-      }
-      button:focus-visible,
-      summary:focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 3px;
-      }
-      button:hover:not(:disabled) {
-        background: var(--soft);
-      }
-      .primary {
-        background: var(--accent);
-        color: var(--inverse);
-      }
-      .primary:hover:not(:disabled) {
-        background: color-mix(in srgb, var(--accent) 83%, var(--surface));
-      }
-      .secondary {
-        border: 1px solid var(--line);
-      }
-      .danger {
-        color: var(--color-text-danger, light-dark(#ba3633, #ef8784));
-      }
-      .danger.primary {
-        background: #b63330;
-        color: white;
-      }
-      svg {
-        display: block;
-        flex: 0 0 auto;
-      }
-      .icon {
-        width: 18px;
-        height: 18px;
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 1.65;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-      .app-header {
-        display: grid;
-        grid-template-columns: 48px minmax(0, 1fr) 36px;
-        align-items: center;
-        gap: 16px;
-        margin-bottom: 32px;
-      }
-      .brand-mark {
-        width: 48px;
-        height: 48px;
-        fill: currentColor;
-      }
-      .identity {
-        min-width: 0;
-      }
-      h1 {
-        font-size: 20px;
-        line-height: 1.3;
-        font-weight: 600;
-        letter-spacing: -0.5px;
-      }
-      .account {
+      #filters {
         display: flex;
-        align-items: center;
-        gap: 6px;
-        color: var(--secondary);
-        font-size: 12px;
-        margin-top: 5px;
-      }
-      .dot {
-        width: 5px;
-        height: 5px;
-        border-radius: 50%;
-        background: var(--secondary);
-      }
-      .dot.on {
-        background: var(--good);
-      }
-      #settings {
-        display: grid;
-        place-items: center;
-        width: 36px;
-        padding: 8px;
-        color: var(--secondary);
-      }
-      .overview {
-        border: 1px solid var(--line);
-        border-radius: var(--border-radius-lg, 14px);
-        padding: 22px;
-      }
-      .stats {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 20px;
-        padding-bottom: 22px;
-      }
-      .stat strong {
-        display: block;
-        font-size: 30px;
-        font-weight: 550;
-        letter-spacing: -0.8px;
-        line-height: 1.2;
-        font-variant-numeric: tabular-nums;
-      }
-      .stat span {
-        display: block;
-        color: var(--secondary);
-        font-size: 12px;
-        margin-top: 5px;
-      }
-      .overview-bottom {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding-top: 16px;
-        border-top: 1px solid var(--line);
-      }
-      .status {
-        min-width: 0;
-        font-size: 12px;
-        color: var(--secondary);
-      }
-      #detail {
-        font-size: 12px;
-        margin-top: 5px;
-        overflow-wrap: anywhere;
-      }
-      .actions {
-        display: flex;
-        gap: 6px;
-        flex: 0 0 auto;
+        gap: 10px;
+        margin: 12px 0;
       }
       #progress {
-        display: block;
-        width: 100%;
-        height: 4px;
-        border: 0;
-        border-radius: 4px;
-        overflow: hidden;
-        margin-top: 16px;
-        accent-color: var(--accent);
-      }
-      #progress::-webkit-progress-bar {
-        background: var(--soft);
-      }
-      #progress::-webkit-progress-value {
-        background: var(--accent);
-        border-radius: 4px;
-      }
-      .content {
-        margin-top: 30px;
-      }
-      .content-heading {
+        margin: 15px 0;
+        padding: 12px 14px;
+        background: var(--color-background-secondary, #f5f5f5);
+        border-radius: 10px;
         display: flex;
-        align-items: baseline;
         justify-content: space-between;
-        margin-bottom: 10px;
         gap: 12px;
       }
-      .content-heading h2 {
-        font-size: 13px;
-        font-weight: 600;
-      }
-      #index-note {
-        font-size: 11px;
-        color: var(--secondary);
-      }
-      .content-item {
-        display: flex;
-        align-items: center;
-        gap: 11px;
-        padding: 13px 0;
-      }
-      .content-item + .content-item {
-        border-top: 1px solid var(--line);
-      }
-      .content-item svg {
-        color: var(--secondary);
-      }
-      .content-item h3 {
-        flex: 1;
-        font-size: 13px;
-        font-weight: 400;
-      }
-      .content-item p {
-        font-size: 13px;
-        font-variant-numeric: tabular-nums;
-      }
-      #video-moments {
-        margin-left: 8px;
-        font-size: 12px;
-        color: var(--secondary);
-      }
-      .attention {
-        border-top: 1px solid var(--line);
-        display: flex;
-        align-items: center;
-        gap: 9px;
-        margin-top: 10px;
-        padding-top: 13px;
-        color: var(--secondary);
-      }
-      .attention > span {
-        flex: 1;
-        font-size: 12px;
-      }
-      .attention .icon {
-        width: 15px;
-        height: 15px;
-      }
-      .attention button {
-        font-size: 12px;
-        margin-right: -8px;
-      }
-      .message {
-        margin-top: 16px;
-        padding: 12px;
-        border-radius: 8px;
-        background: var(--soft);
-        font-size: 12px;
-        overflow-wrap: anywhere;
-      }
       #error {
-        color: var(--color-text-danger, light-dark(#ba3633, #ef8784));
+        color: #b33;
+        padding: 12px 0;
+        white-space: pre-wrap;
       }
-      footer {
-        color: var(--secondary);
-        font-size: 11px;
-        margin-top: 22px;
+      #notice {
+        padding: 8px 0;
+      }
+      #results {
+        margin-top: 18px;
+      }
+      .bookmark {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border: 0;
+        border-bottom: 1px solid var(--color-border-primary, #e8e8e8);
+        border-radius: 0;
+        padding: 18px 4px;
+      }
+      .bookmark .body {
+        white-space: pre-wrap;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        line-height: 1.55;
+        margin: 7px 0;
+      }
+      .author {
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .bookmark img {
+        width: 100%;
+        height: 140px;
+        object-fit: cover;
+        border-radius: 10px;
+      }
+      .gallery {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+        gap: 14px;
+      }
+      .gallery .bookmark {
+        padding: 16px;
+        border: 1px solid var(--color-border-primary, #e5e5e5);
+        border-radius: 14px;
+      }
+      .placeholder {
+        height: 125px;
+        border-radius: 9px;
+        background: var(--color-background-secondary, #f6f6f6);
+        display: grid;
+        place-items: center;
+        color: #888;
+        font-size: 13px;
+      }
+      .detail-body,
+      .evidence-text {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        line-height: 1.65;
+      }
+      .detail-body {
+        font-size: 17px;
+        margin: 22px 0;
+      }
+      #detail .actions {
+        margin: 20px 0;
+      }
+      details {
+        border-top: 1px solid var(--color-border-primary, #e3e3e3);
+        padding: 16px 0;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: 500;
+      }
+      article {
+        padding: 12px 0;
+      }
+      .evidence-text {
+        margin: 6px 0;
+      }
+      .small-link {
+        border: 0;
+        padding: 4px 0;
+        font-size: 13px;
+        text-decoration: underline;
+      }
+      .issues > div {
+        padding: 12px 0;
+        border-bottom: 1px solid #ddd;
       }
       dialog {
+        width: min(600px, calc(100vw - 28px));
+        max-height: 85vh;
+        overflow: auto;
+        padding: 26px;
+        border: 1px solid var(--color-border-primary, #ddd);
+        border-radius: 20px;
         color: inherit;
-        background: var(--surface);
-        border: 1px solid var(--line);
-        border-radius: var(--border-radius-xl, 16px);
-        padding: 0;
-        width: min(440px, calc(100vw - 32px));
-        max-height: calc(100vh - 40px);
-        overflow-y: auto;
-        box-shadow: 0 14px 55px #0002;
+        background: var(--color-background-primary, #fff);
       }
       dialog::backdrop {
         background: #0005;
       }
-      .dialog-head {
+      .dialog-header {
         display: flex;
+        justify-content: space-between;
         align-items: center;
-        justify-content: space-between;
-        padding: 20px 20px 16px;
+        margin-bottom: 20px;
       }
-      .dialog-head h2 {
-        font-size: 16px;
-        font-weight: 600;
-        letter-spacing: -0.2px;
+      .setting {
+        padding: 16px 0;
+        border-top: 1px solid var(--color-border-primary, #eee);
       }
-      .close {
-        display: grid;
-        place-items: center;
-        width: 30px;
-        min-height: 30px;
-        padding: 6px;
-        color: var(--secondary);
+      .setting p {
+        line-height: 1.5;
       }
-      .close .icon {
-        width: 16px;
-        height: 16px;
+      .setting label {
+        display: block;
+        margin: 8px 0;
       }
-      .dialog-body {
-        padding: 0 20px 20px;
-      }
-      .settings-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        min-height: 51px;
-        padding: 10px 0;
-      }
-      .settings-row + .settings-row {
-        border-top: 1px solid var(--line);
-      }
-      .settings-row strong {
-        font-size: 13px;
-        font-weight: 400;
-      }
-      .settings-row p {
-        color: var(--secondary);
-        font-size: 12px;
-        margin-top: 3px;
-      }
-      .settings-row button {
-        font-size: 12px;
-      }
-      .settings-value {
-        font-size: 12px;
-        color: var(--secondary);
-        text-align: right;
-      }
-      .group-title {
-        margin: 22px 0 7px;
-        font-size: 12px;
-        color: var(--secondary);
-        font-weight: 500;
-      }
-      details {
-        margin-top: 16px;
-      }
-      summary {
-        cursor: pointer;
-        font-size: 12px;
-        color: var(--secondary);
-        padding: 4px 0;
-      }
-      .diagnostics {
-        display: grid;
-        gap: 8px;
-        font-size: 11px;
-        color: var(--secondary);
-        padding-top: 12px;
+      #report {
+        white-space: pre-wrap;
         overflow-wrap: anywhere;
-      }
-      .dialog-footer {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-        padding: 0 20px 20px;
-      }
-      #confirm-dialog {
-        width: min(390px, calc(100vw - 32px));
-      }
-      #confirm-dialog .dialog-body {
-        padding: 24px 24px 22px;
-      }
-      #confirm-title {
-        font-size: 16px;
-        font-weight: 600;
-        margin-bottom: 10px;
-      }
-      #confirm-body,
-      #coverage-intro {
-        color: var(--secondary);
         font-size: 13px;
       }
-      #issues {
-        list-style: none;
-        margin: 16px 0 0;
-        padding: 0;
+      #empty {
+        padding: 60px 10px;
+        text-align: center;
       }
-      #issues li {
+      footer {
         display: flex;
-        justify-content: space-between;
-        align-items: baseline;
-        gap: 16px;
-        padding: 12px 0;
-        border-top: 1px solid var(--line);
-        font-size: 13px;
-        line-height: 1.5;
-        overflow-wrap: anywhere;
+        justify-content: center;
+        margin: 20px 0;
       }
-      #issues li span {
-        color: var(--secondary);
-        white-space: nowrap;
-        font-size: 12px;
-      }
-      #issues-note {
-        color: var(--secondary);
-        font-size: 11px;
-        margin-top: 10px;
-      }
-      .workflow {
-        display: flex;
-        gap: 16px;
-        padding: 16px 0 0;
-        margin: 0;
-        list-style: none;
-        color: var(--secondary);
-        font-size: 11px;
-      }
-      .workflow li[aria-current="step"] {
-        color: var(--accent);
-        font-weight: 600;
-      }
-      .workflow li::before {
-        content: "○ ";
-      }
-      .workflow li.complete::before {
-        content: "✓ ";
-      }
-      #progress-note,
-      .hint {
-        font-size: 12px;
-        color: var(--secondary);
-        line-height: 1.5;
-      }
-      #progress-note {
-        margin-top: 8px;
-      }
-      .review-list {
-        margin: 18px 0;
-      }
-      .review-list > div {
-        padding: 12px 0;
-        border-top: 1px solid var(--line);
-      }
-      .review-list dt {
-        font-weight: 500;
-        margin-bottom: 4px;
-      }
-      .review-list dd {
-        margin: 0;
-        color: var(--secondary);
-        font-size: 12px;
-        line-height: 1.5;
-      }
-      #price-guide {
-        margin-top: 16px;
-      }
-      #price-guide .hint {
-        margin-top: 8px;
-      }
-      .issue-heading {
-        font-size: 12px;
-        font-weight: 600;
-        margin: 18px 0 2px;
-      }
-      .issue-heading:first-child {
+      #count {
         margin-top: 12px;
       }
-      .issue-list {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-      }
-      .link-button {
-        padding: 0;
-        min-height: 28px;
-        text-decoration: underline;
-        font-size: 12px;
-      }
-      @media (max-width: 420px) {
+      @media (max-width: 520px) {
         main {
-          padding: 34px 20px 28px;
-        }
-        h1 {
-          font-size: 18px;
-        }
-        .app-header {
-          margin-bottom: 26px;
-        }
-        .overview {
           padding: 18px;
         }
-        .stats {
-          gap: 12px;
+        header {
+          align-items: flex-start;
         }
-        .stat strong {
-          font-size: 27px;
+        h1 {
+          font-size: 22px;
         }
-        .overview-bottom {
+        button {
+          padding: 8px 10px;
+        }
+        #filters {
+          flex-direction: column;
+        }
+        .gallery {
+          grid-template-columns: 1fr;
+        }
+        .search {
           flex-wrap: wrap;
         }
-      }
-      @media (prefers-reduced-motion: no-preference) {
-        button {
-          transition: background-color 0.12s;
-        }
-        dialog[open] {
-          animation: appear 0.12s ease-out;
-        }
-        @keyframes appear {
-          from {
-            opacity: 0;
-            transform: translateY(3px);
-          }
-          to {
-            opacity: 1;
-            transform: none;
-          }
+        .search input {
+          flex-basis: 100%;
         }
       }
     </style>
   </head>
   <body>
-    <svg style="display: none" aria-hidden="true">
-      <defs>
-        <symbol id="i-x" viewBox="0 0 24 24">
-          <path
-            d="M18.4 2h3.4l-7.5 8.6L23 22h-6.8l-5.3-7-6.1 7H1.4l7.9-9L1 2h7l4.8 6.4L18.4 2Zm-1.2 18h1.9L7 4H5l12.2 16Z"
-          />
-        </symbol>
-        <symbol id="i-settings" viewBox="0 0 24 24">
-          <path
-            d="m9 3-1 3-3 1-2 3 2 2-1 3 2 3 3-1 2 3h3l1-3 3-1 2-3-2-2 1-3-2-3-3 1-2-3z"
-          />
-          <circle cx="11.5" cy="11.5" r="3" />
-        </symbol>
-        <symbol id="i-check" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="9" />
-          <path d="m8 12 3 3 5-6" />
-        </symbol>
-        <symbol id="i-info" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 11v5m0-9v.5" />
-        </symbol>
-        <symbol id="i-text" viewBox="0 0 24 24">
-          <path d="M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 16h6" />
-        </symbol>
-        <symbol id="i-image" viewBox="0 0 24 24">
-          <rect x="3" y="4" width="18" height="16" rx="3" />
-          <circle cx="8" cy="9" r="1.5" />
-          <path d="m4 17 5-5 4 4 3-3 5 5" />
-        </symbol>
-        <symbol id="i-video" viewBox="0 0 24 24">
-          <rect x="3" y="4" width="18" height="16" rx="4" />
-          <path d="m10 8 6 4-6 4z" />
-        </symbol>
-        <symbol id="i-audio" viewBox="0 0 24 24">
-          <path d="M4 10v4m4-8v12m4-15v18m4-15v12m4-8v4" />
-        </symbol>
-        <symbol id="i-lock" viewBox="0 0 24 24">
-          <rect x="5" y="10" width="14" height="11" rx="3" />
-          <path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2" />
-        </symbol>
-        <symbol id="i-close" viewBox="0 0 24 24">
-          <path d="m6 6 12 12M6 18 18 6" />
-        </symbol>
-      </defs>
-    </svg>
     <main>
-      <header class="app-header">
-        <svg class="brand-mark" aria-hidden="true"><use href="#i-x" /></svg>
-        <div class="identity">
-          <h1 aria-label="X Bookmark Library">Bookmark Library</h1>
-          <p class="account">
-            <span id="dot" class="dot"></span
-            ><span id="account">Connecting…</span>
-          </p>
+      <header>
+        <h1>Bookmark Library</h1>
+        <div class="actions">
+          <button id="sync">Sync</button><button id="settings">Settings</button>
         </div>
-        <button
-          id="settings"
-          aria-label="Settings"
-          title="Settings"
-          aria-haspopup="dialog"
-        >
-          <svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg>
-        </button>
       </header>
-      <section class="overview" aria-label="Library status">
-        <div class="stats">
-          <div class="stat">
-            <strong id="saved">—</strong><span>Saved</span>
-          </div>
-          <div class="stat">
-            <strong id="searchable">—</strong><span>Searchable</span>
-          </div>
-          <div class="stat">
-            <strong id="remaining">—</strong><span>To process</span>
-          </div>
+      <div id="error" role="alert" hidden></div>
+      <div id="notice" role="status" hidden></div>
+      <section id="list">
+        <form id="search-form" class="search">
+          <input
+            id="query"
+            type="search"
+            placeholder="Search your bookmarks"
+            aria-label="Search bookmarks"
+          /><button type="submit">Search</button
+          ><button id="filter-toggle" type="button" aria-expanded="false">
+            Filters</button
+          ><button id="view-toggle" type="button" aria-pressed="false">
+            Gallery
+          </button>
+        </form>
+        <div id="filters" hidden>
+          <select id="folder" aria-label="X folder">
+            <option value="">All folders</option></select
+          ><select id="sort" aria-label="Sort bookmarks">
+            <option value="">Newest posts</option>
+            <option value="like_count">Most likes</option>
+            <option value="impression_count">Most impressions</option>
+            <option value="bookmark_count">Most bookmarks</option>
+          </select>
         </div>
-        <div class="overview-bottom">
-          <div class="status" role="status" aria-live="polite">
-            <span id="status-title">Loading…</span>
-            <p id="detail" hidden></p>
-          </div>
+        <div id="progress" hidden>
+          <span id="progress-text"></span>
           <div class="actions">
-            <button id="main" class="primary" disabled>Loading…</button
-            ><button id="pause" class="secondary" hidden>Pause</button>
+            <button id="issues">Details</button
+            ><button id="pause">Pause</button>
           </div>
         </div>
-        <progress
-          id="progress"
-          aria-label="Bookmark processing progress"
-          hidden
-        ></progress>
-        <ol id="workflow" class="workflow" aria-label="Import stages" hidden>
-          <li id="step-fetch">Fetch bookmarks</li>
-          <li id="step-process">Prepare sources</li>
-          <li id="step-ready">Ready in ChatGPT</li>
-        </ol>
-        <p id="progress-note" hidden></p>
+        <div id="count" class="muted"></div>
+        <div id="results"></div>
+        <div id="empty" hidden></div>
+        <footer><button id="more" hidden>Load more</button></footer>
       </section>
-      <section
-        id="content"
-        class="content"
-        aria-labelledby="content-title"
-        hidden
-      >
-        <div class="content-heading">
-          <h2 id="content-title">Available to ChatGPT</h2>
+      <section id="detail" hidden>
+        <button id="back">← Back</button>
+        <p id="detail-author" class="muted"></p>
+        <div id="detail-text" class="detail-body"></div>
+        <div class="actions">
+          <button id="use">Use in ChatGPT</button
+          ><button id="source">Open on X</button>
         </div>
-        <div class="content-item">
-          <svg class="icon" aria-hidden="true"><use href="#i-text" /></svg>
-          <h3>Posts &amp; articles</h3>
-          <p id="text-count">—</p>
-        </div>
-        <div class="content-item">
-          <svg class="icon" aria-hidden="true"><use href="#i-image" /></svg>
-          <h3>Images</h3>
-          <p id="image-count">—</p>
-        </div>
-        <div class="content-item">
-          <svg class="icon" aria-hidden="true"><use href="#i-video" /></svg>
-          <h3>Videos</h3>
-          <p><span id="video-count">—</span><span id="video-moments"></span></p>
-        </div>
-        <div class="content-item">
-          <svg class="icon" aria-hidden="true"><use href="#i-audio" /></svg>
-          <h3>Transcripts</h3>
-          <p id="transcript-count">—</p>
-        </div>
-      </section>
-      <aside id="attention" class="attention" hidden>
-        <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg
-        ><span id="attention-title"></span
-        ><button id="review" aria-haspopup="dialog">Details</button>
-      </aside>
-      <p id="error" class="message" role="alert" hidden></p>
-      <p id="notice" class="message" role="status" hidden></p>
-      <footer id="last-sync" hidden></footer>
-    </main>
-    <dialog id="settings-dialog" aria-labelledby="settings-title">
-      <div class="dialog-head">
-        <h2 id="settings-title">Settings</h2>
-        <button
-          class="close"
-          data-close="settings-dialog"
-          aria-label="Close settings"
-          autofocus
-        >
-          <svg class="icon" aria-hidden="true"><use href="#i-close" /></svg>
-        </button>
-      </div>
-      <div class="dialog-body">
-        <div class="group">
-          <div class="settings-row">
-            <div>
-              <strong>X account</strong>
-              <p id="settings-account"></p>
-            </div>
-            <button id="disconnect" class="danger" hidden>Disconnect…</button>
-          </div>
-          <div class="settings-row">
-            <div>
-              <strong>Automatic sync</strong>
-              <p>Manage the schedule in ChatGPT.</p>
-            </div>
-            <button id="schedule" class="text-button">Ask ChatGPT…</button>
-          </div>
-        </div>
-        <h3 class="group-title">Costs</h3>
-        <div class="group">
-          <div class="settings-row">
-            <strong>X API reads</strong
-            ><button id="billing" class="text-button">View billing ↗</button>
-          </div>
-          <div class="settings-row">
-            <strong>Local models</strong
-            ><span class="settings-value">No API fees</span>
-          </div>
-        </div>
-        <h3 class="group-title">Library</h3>
-        <div class="group">
-          <div class="settings-row">
-            <div>
-              <strong>AI summaries &amp; tags</strong>
-              <p id="enrichment-status"></p>
-            </div>
-            <button id="enrich" class="text-button">Ask ChatGPT…</button>
-          </div>
-          <div class="settings-row">
-            <strong>Storage</strong
-            ><span id="storage" class="settings-value"></span>
-          </div>
-          <div class="settings-row">
-            <div>
-              <strong>X folders</strong>
-              <p>
-                <span id="folders"></span> · <span id="folder-checked"></span>
-              </p>
-            </div>
-            <button id="check-folders" class="text-button">Check now…</button>
-          </div>
-          <div class="settings-row">
-            <strong>Last processed</strong
-            ><span id="last-processed" class="settings-value"></span>
-          </div>
-        </div>
+        <div id="evidence"></div>
         <details>
-          <summary>Technical details</summary>
-          <div class="diagnostics">
-            <p id="index-note"></p>
-            <p id="usage"></p>
-            <p id="coverage"></p>
-            <p id="library-path"></p>
-            <p>Bookmark Library 0.4.0</p>
-          </div>
+          <summary>Details</summary>
+          <div id="detail-info"></div>
         </details>
-      </div>
-      <div class="dialog-footer">
-        <button class="primary" data-close="settings-dialog">Done</button>
-      </div>
-    </dialog>
-    <dialog id="coverage-dialog" aria-labelledby="coverage-title">
-      <div class="dialog-head">
-        <h2 id="coverage-title">Source details</h2>
-        <button
-          class="close"
-          data-close="coverage-dialog"
-          aria-label="Close source details"
-          autofocus
-        >
-          <svg class="icon" aria-hidden="true"><use href="#i-close" /></svg>
-        </button>
-      </div>
-      <div class="dialog-body">
-        <p id="coverage-intro"></p>
-        <div id="issues"></div>
-        <p id="issues-note"></p>
-      </div>
-      <div class="dialog-footer">
-        <button data-close="coverage-dialog" class="secondary">Done</button
-        ><button id="retry" class="primary">Retry failed work…</button>
-      </div>
-    </dialog>
-    <dialog
-      id="import-dialog"
-      aria-labelledby="import-title"
-      aria-describedby="import-description"
-    >
-      <div class="dialog-head">
-        <h2 id="import-title">Import bookmarks</h2>
-        <button
-          class="close"
-          data-close="import-dialog"
-          aria-label="Close import review"
-          autofocus
-        >
-          <svg class="icon" aria-hidden="true"><use href="#i-close" /></svg>
-        </button>
-      </div>
-      <div class="dialog-body">
-        <p id="import-description" class="hint"></p>
-        <dl class="review-list">
-          <div>
-            <dt>From X · paid</dt>
-            <dd>Bookmarks, folders, threads and quoted posts.</dd>
-          </div>
-          <div>
-            <dt>On this Mac · no model API fees</dt>
-            <dd>
-              Download media and linked pages, transcribe audio, and index text,
-              images and video for ChatGPT.
-            </dd>
-          </div>
-        </dl>
-        <p class="hint">Pause at any time. Completed work is kept.</p>
-        <details id="price-guide">
-          <summary>How much will it cost?</summary>
-          <p class="hint">
-            Bookmark post reads: $1 per 1,000 for the app owner’s account, or $5
-            at standard rates. Extra context and other resources add to this.
-            These are examples, not a total estimate.
+      </section>
+      <dialog id="settings-dialog">
+        <div class="dialog-header">
+          <h2>Settings</h2>
+          <button data-close="settings-dialog" aria-label="Close settings">
+            ✕
+          </button>
+        </div>
+        <section class="setting">
+          <h3>X account</h3>
+          <p id="x-account"></p>
+          <button id="connect-x">Connect X</button>
+        </section>
+        <section class="setting">
+          <h3>Visual descriptions</h3>
+          <p id="chatgpt-state"></p>
+          <p class="muted">
+            Images and sampled video frames are sent to OpenAI using your
+            authorized ChatGPT plan. Usage counts toward your allowance.
           </p>
-          <button id="pricing" class="link-button">Current X prices ↗</button>
-        </details>
-      </div>
-      <div class="dialog-footer">
-        <button id="import-cancel" class="secondary">Cancel</button>
-        <button id="import-start" class="primary">Start import</button>
-      </div>
-    </dialog>
-    <dialog
-      id="confirm-dialog"
-      aria-labelledby="confirm-title"
-      aria-describedby="confirm-body"
-    >
-      <div>
-        <div class="dialog-body">
-          <h2 id="confirm-title"></h2>
-          <p id="confirm-body"></p>
+          <div class="actions">
+            <button id="connect-chatgpt">Continue with ChatGPT</button
+            ><button id="load-models">Choose model</button
+            ><button id="usage">View usage</button>
+            <button id="disconnect-chatgpt">Disconnect</button>
+          </div>
+          <label for="chatgpt-account">ChatGPT account</label
+          ><select id="chatgpt-account">
+            <option value="">No connected account</option></select
+          ><label for="model">Description model</label
+          ><select id="model">
+            <option value="">Select a model</option>
+          </select>
+        </section>
+        <section class="setting">
+          <h3>Storage</h3>
+          <p id="storage"></p>
+          <p class="muted">
+            Text and embeddings stay saved. Temporary media is removed after
+            required outputs are saved. Originals from earlier versions are
+            preserved.
+          </p>
+        </section>
+        <section class="setting">
+          <h3>Processing</h3>
+          <div id="runs"></div>
+          <button id="browser-recovery">Recover pages in ChatGPT</button>
+        </section>
+        <section class="setting">
+          <h3>Support</h3>
+          <button id="export">Export diagnostic report</button>
+          <pre id="report"></pre>
+        </section>
+      </dialog>
+      <dialog id="issues-dialog">
+        <div class="dialog-header">
+          <h2>Processing details</h2>
+          <button
+            data-close="issues-dialog"
+            aria-label="Close processing details"
+          >
+            ✕
+          </button>
         </div>
-        <div class="dialog-footer">
-          <button id="confirm-cancel" class="secondary" autofocus>Cancel</button
-          ><button id="confirm-action" type="button" class="primary"></button>
+        <div id="issue-list" class="issues"></div>
+      </dialog>
+      <dialog id="sync-dialog">
+        <div class="dialog-header">
+          <h2>Sync bookmarks</h2>
+          <button data-close="sync-dialog" aria-label="Close sync">✕</button>
         </div>
-      </div>
-    </dialog>
+        <p>
+          Fetch bookmarks, direct reply/quote context and linked pages. Process
+          their media and save descriptions using your ChatGPT plan.
+        </p>
+        <p class="muted">
+          X reads use your X credits. Unrelated paused runs remain paused.
+        </p>
+        <div class="actions">
+          <button id="sync-new">Sync new bookmarks</button
+          ><button id="sync-full">Check all exposed pages</button>
+        </div>
+      </dialog>
+    </main>
     <script type="module">
       /*BUNDLE*/
     </script>
