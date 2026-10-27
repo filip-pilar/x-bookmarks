@@ -1139,8 +1139,41 @@
       .setting-heading label {
         margin-block: 14px 6px;
       }
-      #description-settings .setting-heading button {
-        margin-top: 8px;
+      .model-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 220px);
+        align-items: center;
+        gap: 12px;
+        margin-top: 14px;
+        min-height: 36px;
+      }
+      .model-row label {
+        margin: 0;
+      }
+      #model-current {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        min-height: 36px;
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+      #model-feedback {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 4px;
+        font-size: 12px;
+      }
+      #model-feedback button {
+        flex-shrink: 0;
+      }
+      @media (max-width: 480px) {
+        .model-row {
+          grid-template-columns: minmax(0, 1fr) minmax(0, 160px);
+          gap: 8px;
+        }
       }
       .setting-heading > div {
         min-width: 0;
@@ -1675,20 +1708,30 @@
           </p>
           <button id="connect-chatgpt">Connect ChatGPT</button>
           <div id="description-settings" hidden>
-            <div class="setting-heading">
+            <div class="model-row">
               <label id="model-label" for="model-trigger"
                 >Description model</label
               >
-              <button id="load-models" class="quiet">Refresh models</button>
+              <div id="model" class="choice" hidden></div>
+              <output
+                id="model-current"
+                aria-labelledby="model-label"
+                tabindex="-1"
+              ></output>
             </div>
-            <div id="model" class="choice"></div>
+            <div id="model-feedback" hidden>
+              <span id="model-message" class="muted" role="status"></span>
+              <button id="retry-models" class="quiet" hidden>Try again</button>
+            </div>
           </div>
           <details id="account-settings" hidden>
             <summary>Manage account</summary>
-            <label id="chatgpt-account-label" for="chatgpt-account-trigger"
-              >Account</label
-            >
-            <div id="chatgpt-account" class="choice"></div>
+            <div id="account-picker" hidden>
+              <label id="chatgpt-account-label" for="chatgpt-account-trigger"
+                >Account</label
+              >
+              <div id="chatgpt-account" class="choice"></div>
+            </div>
             <div class="account-actions">
               <button id="reconnect-chatgpt" class="quiet">
                 Sign in again

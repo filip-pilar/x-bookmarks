@@ -7,7 +7,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.7.6" };
+const appInfo = { name: "Bookmark Library", version: "0.7.7" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
@@ -27,7 +27,7 @@ const choices = new Map<string, Choice>([
     "chatgpt-account",
     new Choice($("chatgpt-account"), [{ value: "", label: "Choose account" }]),
   ],
-  ["model", new Choice($("model"), [{ value: "", label: "Choose a model" }])],
+  ["model", new Choice($("model"), [], "Choose a model")],
 ]);
 const choice = (id: string) => choices.get(id)!;
 const dialog = (id: string) => $(id) as HTMLDialogElement;
@@ -151,6 +151,11 @@ let loadedQuery = "",
   refreshing = false;
 let returnItem = "",
   currentMatch = "";
+let availableModels: { value: string; label: string }[] = [],
+  modelsState: "idle" | "loading" | "ready" | "error" = "idle",
+  modelsLoadedAt = 0,
+  modelsRequest = 0,
+  changingChatGPT = false;
 const esc = (s: unknown) =>
   String(s ?? "").replace(
     /[&<>"']/g,
@@ -266,6 +271,7 @@ function showDialog(id: string) {
     e.hidden = true;
   for (const c of choices.values()) c.close();
   d.showModal();
+  if (id === "settings-dialog") void loadModels();
 }
 async function openUrl(url: string) {
   if (!/^https?:\/\//.test(url))
@@ -431,8 +437,102 @@ function renderRuns(s: State) {
       : "Nothing waiting";
   $("older-runs").hidden = !history.length;
 }
+function modelAccount(s = state) {
+  return s?.chatgpt.connected && s.chatgpt.plan_enabled
+    ? s.chatgpt.active || ""
+    : "";
+}
+function renderModel() {
+  const saved = state?.chatgpt.model || "";
+  const selected = availableModels.find((m) => m.value === saved);
+  const ready = modelsState === "ready";
+  const selectable =
+    ready &&
+    availableModels.length > 0 &&
+    (availableModels.length > 1 || !selected);
+  $("model").hidden = !selectable;
+  $("model-current").hidden = selectable;
+  $("model-current").textContent =
+    modelsState === "loading" || modelsState === "idle"
+      ? "Loading models…"
+      : selected?.label ||
+        (saved
+          ? saved
+              .split("-")
+              .map((part) =>
+                part === "gpt"
+                  ? "GPT"
+                  : part.charAt(0).toUpperCase() + part.slice(1),
+              )
+              .join(" ")
+          : "None available");
+  choice("model").setOptions(availableModels, selected ? saved : "");
+  choice("model").disabled = changingChatGPT || !selectable;
+  const message =
+    modelsState === "error"
+      ? "Couldn’t load models."
+      : ready && !availableModels.length
+        ? "No models available for this account."
+        : ready && saved && !selected
+          ? "Saved model unavailable. Choose another."
+          : "";
+  $("model-message").textContent = message;
+  $("model-feedback").hidden = !message;
+  $("retry-models").hidden =
+    modelsState !== "error" && !(ready && !availableModels.length);
+  $("description-settings").setAttribute(
+    "aria-busy",
+    String(modelsState === "loading"),
+  );
+}
+async function loadModels(force = false) {
+  const account = modelAccount();
+  if (
+    !account ||
+    modelsState === "loading" ||
+    (!force &&
+      modelsState === "ready" &&
+      Date.now() - modelsLoadedAt < 5 * 60_000)
+  )
+    return;
+  const request = ++modelsRequest;
+  const fromRetry = document.activeElement === $("retry-models");
+  modelsState = "loading";
+  renderModel();
+  try {
+    const r = await call("chatgpt_models");
+    if (request !== modelsRequest || account !== modelAccount()) return;
+    availableModels = r.models.map((m: { id: string; name: string }) => ({
+      value: m.id,
+      label: m.name,
+    }));
+    modelsState = "ready";
+    modelsLoadedAt = Date.now();
+  } catch {
+    if (request !== modelsRequest || account !== modelAccount()) return;
+    modelsState = "error";
+  }
+  renderModel();
+  if (fromRetry)
+    requestAnimationFrame(() => {
+      if (
+        document.activeElement !== document.body ||
+        !dialog("settings-dialog").open
+      )
+        return;
+      if (!$("retry-models").hidden)
+        $("retry-models").focus({ preventScroll: true });
+      else if (!$("model").hidden) choice("model").focus();
+      else $("model-current").focus({ preventScroll: true });
+    });
+}
 function renderState(s: State) {
-  const accountChanged = state?.chatgpt.active !== s.chatgpt.active;
+  const accountChanged = modelAccount() !== modelAccount(s);
+  if (accountChanged) {
+    modelsRequest++;
+    modelsState = "idle";
+    availableModels = [];
+  }
   const signature = JSON.stringify([s.total, s.last_processed, s.stage_counts]);
   if (librarySignature && librarySignature !== signature)
     $("refresh-content").hidden = false;
@@ -498,7 +598,7 @@ function renderState(s: State) {
   $("account-settings").hidden = !s.chatgpt.accounts.length;
   $("usage").hidden = !s.chatgpt.connected;
   $("disconnect-chatgpt").hidden = !s.chatgpt.accounts.length;
-  $("load-models").hidden = !s.chatgpt.connected;
+  $("account-picker").hidden = s.chatgpt.accounts.length < 2;
   $("storage").innerHTML = [
     [
       "Temporary media",
@@ -522,13 +622,9 @@ function renderState(s: State) {
     ],
     s.chatgpt.active || "",
   );
-  const model = choice("model");
-  const models = accountChanged
-    ? []
-    : model.options.filter((o) => o.value || !s.chatgpt.model);
-  if (s.chatgpt.model && !models.some((o) => o.value === s.chatgpt.model))
-    models.push({ value: s.chatgpt.model, label: s.chatgpt.model });
-  model.setOptions(models, s.chatgpt.model || "");
+  renderModel();
+  if (modelsState === "idle" && dialog("settings-dialog").open)
+    void loadModels();
   $("browser-recovery").hidden = !s.stage_counts.some(
     (x) => x.state === "browser" && x.count,
   );
@@ -1279,6 +1375,7 @@ async function changeChatGPT(id: "chatgpt-account" | "model") {
     control.value = previous;
     return;
   }
+  changingChatGPT = true;
   choice("chatgpt-account").disabled = true;
   choice("model").disabled = true;
   try {
@@ -1288,26 +1385,24 @@ async function changeChatGPT(id: "chatgpt-account" | "model") {
     control.value = previous;
     throw error;
   } finally {
+    changingChatGPT = false;
     choice("chatgpt-account").disabled = false;
-    choice("model").disabled = false;
+    renderModel();
+    requestAnimationFrame(() => {
+      if (
+        document.activeElement !== document.body ||
+        !dialog("settings-dialog").open
+      )
+        return;
+      if (id === "model" && $("model").hidden)
+        $("model-current").focus({ preventScroll: true });
+      else choice(id).focus();
+    });
   }
 }
 choice("chatgpt-account").onChange = () =>
   void act(() => changeChatGPT("chatgpt-account"));
-action("load-models", async () => {
-  const r = await call("chatgpt_models");
-  options(
-    "model",
-    [
-      ...(r.models.length ? [] : [{ value: "", label: "No models available" }]),
-      ...r.models.map((m: { id: string; name: string }) => ({
-        value: m.id,
-        label: m.name,
-      })),
-    ],
-    state?.chatgpt.model || "",
-  );
-});
+$("retry-models").onclick = () => void loadModels(true);
 action("reconnect-chatgpt", async () => {
   const r = await call("connect_chatgpt");
   await openUrl(r.url);

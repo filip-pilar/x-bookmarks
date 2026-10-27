@@ -1,5 +1,6 @@
 import { createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { flushSync } from "react-dom";
 import * as Select from "@radix-ui/react-select";
 
 type Option = { value: string; label: string };
@@ -42,6 +43,7 @@ export class Choice {
   constructor(
     private element: HTMLElement,
     options: Option[],
+    private placeholder = "Choose…",
   ) {
     this.options = options;
     this.root = createRoot(element);
@@ -61,7 +63,8 @@ export class Choice {
   }
   get label() {
     return (
-      this.options.find((o) => o.value === this.current)?.label || "Choose…"
+      this.options.find((o) => o.value === this.current)?.label ||
+      this.placeholder
     );
   }
   set disabled(value: boolean) {
@@ -91,6 +94,13 @@ export class Choice {
   close() {
     this.expanded = false;
     this.render();
+  }
+  focus() {
+    // Saving can re-enable the trigger before React commits its DOM update.
+    flushSync(() => this.render());
+    this.element
+      .querySelector<HTMLButtonElement>("button")
+      ?.focus({ preventScroll: true });
   }
   private render() {
     const id = this.element.id;

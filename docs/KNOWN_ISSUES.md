@@ -1,6 +1,12 @@
 # Verification and remaining limitations
 
-Version 0.7.6 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.7 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.7 model selection
+
+Settings loads the active ChatGPT account's model catalog automatically. Successful results are reused for five minutes and invalidated when account access changes. The compact selector uses provider display names; a sole available, already-selected model is a plain value. One connected account no longer produces a redundant account picker. Loading preserves the model row's height, and catalog errors/empty results provide a local retry. Unavailable saved models require an explicit replacement; the panel never changes the selected model automatically.
+
+The maintainer's live account catalog returned eight models. Browser rehearsals with the built panel, a copied library and controlled provider responses covered loading geometry, successful selection, failure rollback, retry, single/empty catalogs, unavailable saved models, account changes while requests were pending, cached reopening and keyboard focus in a narrow dark layout. No description generation or real account/model change was performed. The browser host remains simulated; already-open desktop panels need reopening after installation.
 
 ## Verified for 0.7.6 filters, search and Settings
 
