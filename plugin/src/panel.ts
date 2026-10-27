@@ -7,7 +7,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.7.7" };
+const appInfo = { name: "Bookmark Library", version: "0.7.8" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
@@ -110,9 +110,27 @@ type State = {
   index_bytes: number;
   runtime_bytes: number;
   last_processed?: unknown;
-  folder_inventory?: unknown;
+  folder_inventory?: {
+    at?: number;
+    complete?: boolean;
+    in_progress?: boolean;
+    scope?: string;
+  };
+  last_inventory?: {
+    at: number;
+    mode: string;
+    returned: number;
+    partial_pages?: number;
+    unavailable_records?: number;
+  };
+  full_inventory_at?: number;
+  x_auth_error?: string;
+  processing_issue_count: number;
+  run_count: number;
+  running_run_count: number;
   chatgpt: {
     connected: boolean;
+    auth_error?: string;
     plan_enabled: boolean;
     model?: string;
     active?: string;
@@ -393,49 +411,170 @@ function runHtml(r: Run) {
   const active = r.state === "running" && !state?.paused;
   return `<article class="run" data-run-id="${esc(r.id)}"><p class="run-title">${esc(r.label)}${r.items ? " · " + count(r.items) : ""}</p><p class="muted">${esc(date(r.created))} · ${r.state === "complete" ? "Complete" : active ? "Running" : "Paused"}${!r.items && r.state !== "complete" ? " · Finding bookmarks…" : ""}</p><div class="actions">${r.pending_steps ? `<button data-action="${active ? "pause" : "resume"}" data-run="${esc(r.id)}">${active ? "Pause" : "Resume"}</button>` : ""}${r.retryable_steps ? `<button data-action="retry" data-run="${esc(r.id)}">Retry ${count(r.retryable_steps, "step")}</button>` : ""}</div></article>`;
 }
-function renderRuns(s: State) {
-  const active = s.runs.filter((r) => r.state === "running" && !s.paused);
-  const current = active.length
-    ? active
-    : s.runs.filter((r) => r.state !== "complete").slice(0, 1);
-  const history = s.runs.filter((r) => !current.includes(r));
-  for (const [id, runs] of [
-    ["runs", current],
-    ["run-history", history],
-  ] as const) {
-    if (patch($(id), runs.map(runHtml).join(""))) {
-      for (const b of $(id).querySelectorAll<HTMLButtonElement>(
-        "[data-action]",
-      ))
-        b.onclick = () =>
-          void act(async () => {
-            const result = await call("queue_control", {
-              action: b.dataset.action,
-              run: b.dataset.run,
+type ReviewItem = {
+  key: string;
+  item: string;
+  run: string;
+  title: string;
+  author: string;
+  error: string;
+  state: string;
+  steps: number;
+  kinds: string[];
+  retryable: number;
+  browser: boolean;
+  account: boolean;
+  next_at?: number;
+};
+let reviewView: "issues" | "runs" = "issues",
+  reviewOffset = 0,
+  reviewRequest = 0;
+let reviewNext: number | null = null;
+async function loadReview(offset = 0) {
+  const request = ++reviewRequest,
+    view = reviewView;
+  const focus = document.activeElement;
+  const pageChanged = offset !== reviewOffset;
+  $("review-list").setAttribute("aria-busy", "true");
+  for (const id of ["review-prev", "review-next"])
+    ($(id) as HTMLButtonElement).disabled = true;
+  try {
+    const r = await call("processing_details", { view, offset, limit: 20 });
+    if (request !== reviewRequest) return;
+    reviewOffset = r.offset;
+    reviewNext = r.next_offset;
+    $("review-list").innerHTML =
+      view === "runs"
+        ? r.items.map(runHtml).join("")
+        : r.items
+            .map(
+              (g: ReviewItem) =>
+                `<article><p class="issue-title">${esc(g.author ? "@" + g.author + " · " : "")}${esc(g.title)}</p><p class="muted">${esc(stateLabel(g.state))} · ${count(g.steps, "step")}</p><p class="muted">${esc(g.kinds.map(stageLabel).join(" · "))}</p>${g.error ? `<p>${esc(issueText(g.error))}</p>` : ""}<div class="actions">${g.item ? `<button data-item="${esc(g.item)}">Open bookmark</button>` : ""}${g.account ? "<button data-settings>Open settings</button>" : ""}${g.browser ? "<button data-recovery>Recover pages</button>" : ""}${g.retryable && !g.account ? `<button data-action="retry" data-item-retry="${esc(g.item)}" data-run="${esc(g.run)}">Retry failed steps</button>` : ""}</div></article>`,
+            )
+            .join("");
+    $("review-empty").hidden = r.total > 0;
+    $("review-empty").textContent =
+      view === "runs" ? "No processing runs yet." : "No processing issues.";
+    $("review-count").textContent = r.total
+      ? `${r.offset + 1}–${r.offset + r.items.length} of ${number(r.total)}`
+      : "";
+    if (pageChanged) dialog("issues-dialog").scrollTop = 0;
+    for (const button of $("review-list").querySelectorAll<HTMLButtonElement>(
+      "button",
+    ))
+      button.onclick = () =>
+        void act(async () => {
+          if (button.dataset.item) {
+            dialog("issues-dialog").close();
+            await openItem(button.dataset.item);
+          } else if (button.hasAttribute("data-settings")) {
+            dialog("issues-dialog").close();
+            showDialog("settings-dialog");
+          } else if (button.hasAttribute("data-recovery"))
+            await draft(recoveryPrompt);
+          else {
+            const action = button.dataset.action!,
+              item = button.dataset.itemRetry;
+            const r = await call("queue_control", {
+              action,
+              ...(item ? { item } : { run: button.dataset.run }),
             });
-            if (b.dataset.action === "retry") retryNotice(result);
+            if (action === "retry") retryNotice(r);
             else
               feedback(
                 "notice",
-                b.dataset.action === "resume"
-                  ? "This run resumed."
-                  : "This run will pause after its current step.",
+                action === "resume"
+                  ? "Run resumed."
+                  : "Pausing after the current step.",
               );
             await refresh();
-          }, b);
+            await loadReview(reviewOffset);
+          }
+        }, button);
+  } finally {
+    if (request === reviewRequest) {
+      $("review-list").setAttribute("aria-busy", "false");
+      ($("review-prev") as HTMLButtonElement).disabled = reviewOffset === 0;
+      ($("review-next") as HTMLButtonElement).disabled = reviewNext === null;
+      if (
+        focus instanceof HTMLButtonElement &&
+        ["review-prev", "review-next"].includes(focus.id) &&
+        (document.activeElement === focus ||
+          document.activeElement === document.body)
+      )
+        $("review-count").focus({ preventScroll: true });
     }
   }
-  $("runs").hidden = !current.length;
-  $("processing-state").textContent = current.length
-    ? s.paused
-      ? "Paused"
-      : active.length
-        ? "Running"
-        : "Waiting"
-    : s.paused
-      ? "Paused · Nothing waiting"
-      : "Nothing waiting";
-  $("older-runs").hidden = !history.length;
+}
+function openReview(view: "issues" | "runs") {
+  if (view !== reviewView) {
+    $("review-list").replaceChildren();
+    $("review-count").textContent = "";
+    $("review-empty").hidden = true;
+    reviewOffset = 0;
+    reviewNext = null;
+    dialog("issues-dialog").scrollTop = 0;
+  }
+  reviewView = view;
+  for (const name of ["issues", "runs"])
+    $("review-" + name).setAttribute("aria-pressed", String(name === view));
+  if (!dialog("issues-dialog").open) showDialog("issues-dialog");
+  void act(() => loadReview());
+}
+function inventoryLabel() {
+  const latest = state?.last_inventory;
+  if (latest?.partial_pages || latest?.unavailable_records)
+    return "Last sync incomplete";
+  if (state?.full_inventory_at) return "API inventory checked";
+  if (latest?.mode === "sample") return "Sample import";
+  return state?.total ? "Full check incomplete" : "Not imported";
+}
+function renderCount() {
+  if (loading) return;
+  const coverage =
+    !state?.full_inventory_at && state?.last_inventory?.mode === "sample"
+      ? " · Sample"
+      : "";
+  $("count").textContent = searching
+    ? `${number(rows.length)} top ${rows.length === 1 ? "match" : "matches"}`
+    : `${rows.length === scopedTotal ? number(rows.length) : `${number(rows.length)} of ${number(scopedTotal)}`} saved${coverage}`;
+}
+function renderCoverage() {
+  const folders = state?.folder_inventory;
+  const label = folders?.in_progress
+    ? "Check unfinished"
+    : folders?.complete
+      ? folders.scope === "existing"
+        ? "Checked for saved bookmarks"
+        : "Checked"
+      : folders
+        ? "Partially synced"
+        : "Not synced";
+  $("sync-coverage").innerHTML =
+    `<div><dt>Saved locally</dt><dd>${number(state?.total)}</dd></div><div><dt>Bookmarks</dt><dd>${esc(inventoryLabel())}</dd></div><div><dt>Folders</dt><dd>${esc(label)}</dd></div>${state?.full_inventory_at ? `<div><dt>Last full check</dt><dd>${esc(date(state.full_inventory_at))}</dd></div>` : ""}`;
+  $("folder-status").textContent =
+    choice("folder").options.length > 1
+      ? folders?.complete
+        ? ""
+        : label
+      : folders?.complete
+        ? "No folders"
+        : label;
+  $("folder-status").hidden = !$("folder-status").textContent;
+  $("folder").hidden = choice("folder").options.length < 2;
+  $("sync-new").textContent = state?.full_inventory_at
+    ? "Sync new bookmarks"
+    : "Check all bookmarks";
+  $("sync-full").hidden = !state?.full_inventory_at;
+  renderCount();
+}
+function connection(online: boolean) {
+  $("connection-status").hidden = online;
+  $("connection-message").textContent = state
+    ? "Connection lost · Showing saved view"
+    : "Library service unavailable";
+  $("settings-connection").hidden = online;
+  ($("sync") as HTMLButtonElement).disabled = !online;
 }
 function modelAccount(s = state) {
   return s?.chatgpt.connected && s.chatgpt.plan_enabled
@@ -511,6 +650,9 @@ async function loadModels(force = false) {
   } catch {
     if (request !== modelsRequest || account !== modelAccount()) return;
     modelsState = "error";
+    try {
+      await refresh();
+    } catch {}
   }
   renderModel();
   if (fromRetry)
@@ -561,19 +703,21 @@ function renderState(s: State) {
     );
   $("progress-text").textContent =
     `${s.paused && (p.unfinished || p.syncs) ? "Paused · " : ""}${parts.join(" · ")}`;
-  $("pause").hidden = s.paused || !s.runs.some((r) => r.state === "running");
-  const issues = [
-    ...s.stage_issues,
-    ...s.jobs.filter((j) => ["failed", "waiting"].includes(j.state)),
-  ];
-  $("issues").hidden = !issues.length;
-  $("manage-runs").hidden = !s.runs.some((r) => r.state !== "complete");
+  $("pause").hidden = s.paused || !s.running_run_count;
+  $("issues").hidden = !s.processing_issue_count;
+  $("manage-runs").hidden = !s.run_count;
   $("x-account").textContent = s.connected
     ? s.account?.username
       ? `@${s.account.username}`
       : "Connected"
-    : "Not connected";
-  $("connect-x").textContent = s.connected ? "Reconnect" : "Connect X";
+    : s.x_auth_error
+      ? "Sign-in needed"
+      : "Not connected";
+  $("connect-x").textContent = s.x_auth_error
+    ? "Sign in again"
+    : s.connected
+      ? "Reconnect"
+      : "Connect X";
   $("connect-x").classList.toggle("quiet", s.connected);
   const activeAccount = s.chatgpt.accounts.find(
     (a) => a.id === s.chatgpt.active,
@@ -628,8 +772,17 @@ function renderState(s: State) {
   $("browser-recovery").hidden = !s.stage_counts.some(
     (x) => x.state === "browser" && x.count,
   );
-  renderRuns(s);
-  renderIssues(issues);
+  $("processing-state").textContent = s.paused
+    ? p.unfinished || p.syncs
+      ? "Paused"
+      : "Paused · Nothing waiting"
+    : s.running_run_count
+      ? "Running"
+      : "Nothing waiting";
+  $("settings-runs").hidden = !s.run_count;
+  $("settings-runs").textContent =
+    `View ${number(s.run_count)} ${s.run_count === 1 ? "run" : "runs"}`;
+  renderCoverage();
 }
 function retryNotice(r: { retried: number }) {
   feedback(
@@ -641,45 +794,16 @@ function retryNotice(r: { retried: number }) {
 }
 const recoveryPrompt =
   "Recover Bookmark Library pages in browser_pending. Use an appropriate existing browser profile; in-app Browser does not share Chrome logins. Read rendered content and save it with browser_capture. Ask me only for personal login/consent. Keep challenges and partial extraction visible. Do not import more bookmarks or follow links inside pages.";
-function renderIssues(issues: Stage[]) {
-  if (
-    !patch(
-      $("issue-list"),
-      issues
-        .map(
-          (s) =>
-            `<article><span class="muted">${esc(stageLabel(s.kind))} · ${esc(stateLabel(s.state))}</span><p class="issue-title">${esc(s.author ? "@" + s.author + " · " : "")}${esc(s.title || (s.item ? "Saved bookmark " + s.item : "Bookmark sync"))}</p><p class="muted">${esc(issueText(s.error) || (s.state === "unavailable" ? "The source cannot currently be retrieved." : "Saved content remains available."))}${s.state === "waiting" && s.next_at ? " Next check " + esc(date(s.next_at)) + "." : ""}</p><div class="actions">${s.item ? `<button data-item="${esc(s.item)}">Open bookmark</button>` : ""}${s.state === "browser" ? "<button data-recovery>Recover in ChatGPT</button>" : s.error?.startsWith("chatgpt_") ? "<button data-settings>Open settings</button>" : ["failed", "blocked", "waiting"].includes(s.state) ? `<button data-retry="${esc(s.item || "")}" data-run="${esc(s.run)}">${s.state === "waiting" ? "Retry now" : "Retry failed steps"}</button>` : ""}</div></article>`,
-        )
-        .join("") || '<p class="muted">No failures need attention.</p>',
-    )
-  )
-    return;
-  for (const b of $("issue-list").querySelectorAll<HTMLButtonElement>("button"))
-    b.onclick = () =>
-      void act(async () => {
-        if (b.hasAttribute("data-item")) {
-          dialog("issues-dialog").close();
-          await openItem(b.dataset.item!);
-        } else if (b.hasAttribute("data-settings")) {
-          dialog("issues-dialog").close();
-          showDialog("settings-dialog");
-          ($("account-settings") as HTMLDetailsElement).open = true;
-        } else if (b.hasAttribute("data-recovery")) await draft(recoveryPrompt);
-        else {
-          retryNotice(
-            await call("queue_control", {
-              action: "retry",
-              item: b.dataset.retry || undefined,
-              run: b.dataset.retry ? undefined : b.dataset.run,
-            }),
-          );
-          await refresh();
-        }
-      }, b);
-}
 async function refresh() {
-  const s = (await call("status")) as State;
+  let s: State;
+  try {
+    s = (await call("status")) as State;
+  } catch (error) {
+    connection(false);
+    throw error;
+  }
   renderState(s);
+  connection(true);
   const signature = JSON.stringify(s.folder_inventory);
   if (signature !== folderSignature && !choice("folder").focused) {
     const c = await call("collections");
@@ -697,6 +821,7 @@ async function refresh() {
     );
     folderSignature = signature;
     renderFilters();
+    renderCoverage();
   }
 }
 function renderFilters() {
@@ -835,6 +960,7 @@ async function load(reset = true) {
       $("search-submit").removeAttribute("aria-busy");
       $("more").removeAttribute("aria-busy");
       updateSearchControl();
+      renderCount();
     }
   }
 }
@@ -968,9 +1094,7 @@ function renderList() {
       list.insertBefore(card, list.children[i] || null);
     if (gallery) thumbnailObserver.observe(card);
   });
-  $("count").textContent = searching
-    ? `${number(rows.length)} top ${rows.length === 1 ? "match" : "matches"}`
-    : `${number(rows.length)} of ${number(scopedTotal)}`;
+  renderCount();
   $("empty").hidden = rows.length > 0;
   $("empty").textContent = searching
     ? `No matches for “${loadedQuery}”. Try another phrase${choice("folder").value ? " or clear the folder filter" : ""}.`
@@ -1338,11 +1462,20 @@ action("use", () =>
 $("source").setAttribute("data-source", "");
 wireLinks($("detail"));
 $("settings").onclick = () => showDialog("settings-dialog");
-$("issues").onclick = () => showDialog("issues-dialog");
-$("manage-runs").onclick = () => {
-  showDialog("settings-dialog");
-  $("runs").scrollIntoView({ block: "center" });
+$("issues").onclick = () => openReview("issues");
+$("manage-runs").onclick = () => openReview("runs");
+$("settings-runs").onclick = () => {
+  dialog("settings-dialog").close();
+  openReview("runs");
 };
+$("review-issues").onclick = () => openReview("issues");
+$("review-runs").onclick = () => openReview("runs");
+$("review-prev").onclick = () =>
+  void act(() => loadReview(Math.max(0, reviewOffset - 20)));
+$("review-next").onclick = () =>
+  void act(() => loadReview(reviewNext ?? reviewOffset));
+action("review-refresh", () => loadReview(reviewOffset));
+action("retry-connection", refresh);
 $("sync").onclick = () => showDialog("sync-dialog");
 for (const [id, mode] of [
   ["sync-new", "new"],
@@ -1363,7 +1496,7 @@ action("connect-x", async () => {
   await openUrl(r.url);
 });
 action("connect-chatgpt", async () => {
-  const r = await call("connect_chatgpt");
+  const r = await call("connect_chatgpt", { account: state?.chatgpt.active });
   await openUrl(r.url);
 });
 async function changeChatGPT(id: "chatgpt-account" | "model") {
@@ -1404,7 +1537,7 @@ choice("chatgpt-account").onChange = () =>
   void act(() => changeChatGPT("chatgpt-account"));
 $("retry-models").onclick = () => void loadModels(true);
 action("reconnect-chatgpt", async () => {
-  const r = await call("connect_chatgpt");
+  const r = await call("connect_chatgpt", { account: state?.chatgpt.active });
   await openUrl(r.url);
 });
 choice("model").onChange = () => void act(() => changeChatGPT("model"));
@@ -1419,10 +1552,43 @@ action("disconnect-chatgpt", async () => {
   await refresh();
 });
 action("usage", () => openUrl("https://chatgpt.com/settings/usage"));
+let report: { path: string; name: string; blob: string } | undefined;
 action("export", async () => {
-  const r = await call("export_diagnostics");
+  report = await call("export_diagnostics");
   $("report").hidden = false;
-  $("report").textContent = r.summary + "\nSaved locally: " + r.path;
+  $("report-message").textContent = "Report ready. Nothing sent.";
+  $("report-open").hidden = !extensions.files;
+  $("report-save").hidden = !app.getHostCapabilities()?.downloadFile;
+  if ($("report-open").hidden && $("report-save").hidden)
+    $("report-message").textContent =
+      "Report saved on this Mac. Copy its path to open it in Finder.";
+});
+action("report-open", async () => {
+  if (report && extensions.files) await extensions.files.open(report.path);
+});
+action("report-save", async () => {
+  if (!report) return;
+  const result = await app.downloadFile({
+    contents: [
+      {
+        type: "resource",
+        resource: {
+          uri: `file:///${report.name}`,
+          mimeType: "application/zip",
+          blob: report.blob,
+        },
+      },
+    ],
+  });
+  $("report-message").textContent = result.isError
+    ? "Download cancelled. Report is still available."
+    : "Report downloaded. Nothing sent.";
+});
+action("report-copy", async () => {
+  if (report) {
+    await navigator.clipboard.writeText(report.path);
+    $("report-message").textContent = "File path copied.";
+  }
 });
 action("browser-recovery", () => draft(recoveryPrompt));
 action("confirm-clear", async () => {

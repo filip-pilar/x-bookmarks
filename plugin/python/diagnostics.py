@@ -14,7 +14,7 @@ def safe_error(value, limit=1500):
 
 def export_report():
     """Allowlisted support data only; never zip the library or raw logs."""
-    import hashlib, json, platform, secrets, shutil, time, zipfile
+    import base64, hashlib, json, platform, secrets, shutil, time, zipfile
     from store import HOME, VERSION, db, atomic, preflight_status
     salt = secrets.token_bytes(32)
     def alias(value):
@@ -53,4 +53,4 @@ def export_report():
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("summary.txt", summary)
         archive.writestr("diagnostics.json", json.dumps(report, indent=2))
-    return {"path": str(path), "summary": summary, "files": ["summary.txt", "diagnostics.json"], "uploaded": False}
+    return {"path": str(path), "name": path.name, "blob": base64.b64encode(path.read_bytes()).decode(), "summary": summary, "files": ["summary.txt", "diagnostics.json"], "uploaded": False}

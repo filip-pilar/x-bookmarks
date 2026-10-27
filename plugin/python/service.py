@@ -140,6 +140,7 @@ class Handler(BaseHTTPRequestHandler):
                 "clear_cache": lambda: pipeline.clear_cache(args.get("item")),
                 "aggregate": lambda: library.aggregate(args),
                 "diagnostics": diagnostics.export_report,
+                "processing_details": lambda: __import__("processing").page(args),
                 "browser_pending": lambda: pages.pending(args.get("limit", 20)),
                 "browser_capture": lambda: pages.save(args),
                 "chatgpt_connect": lambda: subscription.begin(PORT, args.get("account")),

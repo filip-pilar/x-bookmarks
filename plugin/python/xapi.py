@@ -2,7 +2,7 @@ import base64, hashlib, json, secrets, subprocess, threading, time
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
-from store import HOME, config, save_config, db, atomic
+from store import HOME, config, save_config, db, atomic, set_setting, setting
 
 API_BASE = "https://api.x.com/2"
 SCOPES = "tweet.read users.read bookmark.read offline.access"
@@ -72,15 +72,19 @@ def access_token(force=False):
     with LOCK:
         token = keychain("get")
         if not token:
+            set_setting('x_auth_error', 'sign_in_required')
             raise RuntimeError("Connect X before importing bookmarks.")
         if force or token.get("expires_at", 0) < time.time() + 90:
-            new = token_request(
-                {
+            try:
+                new = token_request({
                     "grant_type": "refresh_token",
                     "client_id": config()["client_id"],
                     "refresh_token": token["refresh_token"],
-                }
-            )
+                })
+            except XError as error:
+                if error.status in (400, 401):
+                    set_setting('x_auth_error', 'sign_in_required')
+                raise
             new.setdefault("refresh_token", token["refresh_token"])
             keychain("set", new)
             token = new
@@ -115,6 +119,8 @@ def get(path, params=None):
                                     "rate_reset": r.headers.get("x-rate-limit-reset")}),
                     ),
                 )
+            if setting('x_auth_error'):
+                set_setting('x_auth_error', None)
             return result
         except HTTPError as e:
             from diagnostics import safe_error
@@ -130,6 +136,8 @@ def get(path, params=None):
                 )
             if e.code == 401 and attempt == 0:
                 continue
+            if e.code == 401:
+                set_setting('x_auth_error', 'sign_in_required')
             if e.code == 429:
                 try:
                     reset = float(
@@ -225,6 +233,7 @@ def finish(params):
         keychain("set", token)
         cfg.update(account=account, owner_id=account["id"])
         save_config(cfg)
+        set_setting('x_auth_error', None)
 
 
 def disconnect():
@@ -236,5 +245,6 @@ def disconnect():
         cfg = config()
         cfg.pop("account", None)
         save_config(cfg)
+        set_setting('x_auth_error', None)
         (HOME / "oauth-pending.json").unlink(missing_ok=True)
     return {"disconnected": True, "local_library_retained": True}

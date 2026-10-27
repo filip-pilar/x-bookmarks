@@ -124,31 +124,61 @@ def finish(params):
 def status():
     registry = load("accounts", {"active": None, "accounts": {}})
     token = load(registry["active"], {}) if registry["active"] else {}
-    return {"connected": bool(token.get("access_token")),
+    return {"connected": bool(token.get("access_token")) and not bool(token.get("auth_error")),
+            "auth_error": token.get("auth_error"), "verified_at": token.get("verified_at"),
             "plan_enabled": "chatgpt.tokens.use.direct" in token.get("scope", "").split(),
             "active": registry["active"], "model": load("preferences", {}).get("model"),
             "accounts": [{"id": k, "label": v["label"]} for k, v in registry["accounts"].items()],
             "usage_url": "https://chatgpt.com/settings/usage"}
 
 
-def access():
+def access(account=None):
     with locked():
-        account = load("accounts", {}).get("active")
+        account = account or load("accounts", {}).get("active")
         token = load(account, {}) if account else {}
-        if not token.get("access_token"):
+        if not token.get("access_token") or token.get("auth_error"):
             raise PlanError("chatgpt_sign_in_required")
         if "chatgpt.tokens.use.direct" not in token.get("scope", "").split():
             raise PlanError("chatgpt_plan_consent_required")
         if token.get("expires_at", 0) < time.time() + 120:
-            renewed = request(AUTH + "/api/accounts/oauth/token", {"grant_type": "refresh_token",
-                "client_id": token["client_id"], "refresh_token": token["refresh_token"], "resource": API}, form=True)
+            try:
+                renewed = request(AUTH + "/api/accounts/oauth/token", {"grant_type": "refresh_token",
+                    "client_id": token["client_id"], "refresh_token": token["refresh_token"], "resource": API}, form=True)
+            except PlanError as error:
+                if error.code in ("invalid_grant", "invalid_token", "chatgpt_sign_in_required"):
+                    token['auth_error'] = 'chatgpt_sign_in_required'
+                    atomic(DIRECTORY / (account + '.json'), token)
+                    raise PlanError('chatgpt_sign_in_required') from None
+                raise
             token.update(renewed, expires_at=time.time() + renewed["expires_in"])
             atomic(DIRECTORY / (account + ".json"), token)
         return token["access_token"]
 
 
+def record_access(account, credential, rejected=False):
+    # A late request must not change the health of a replacement credential.
+    with locked():
+        token = load(account, {}) if account else {}
+        if token.get('access_token') != credential:
+            return
+        if rejected:
+            token['auth_error'] = 'chatgpt_sign_in_required'
+        else:
+            token.pop('auth_error', None)
+            token['verified_at'] = time.time()
+        atomic(DIRECTORY / (account + '.json'), token)
+
+
 def models():
-    result = request(API + "/models", token=access())
+    account = load('accounts', {}).get('active')
+    credential = access(account)
+    try:
+        result = request(API + "/models", token=credential)
+    except PlanError as error:
+        if error.code == 'chatgpt_sign_in_required':
+            record_access(account, credential, rejected=True)
+        raise
+    record_access(account, credential)
     return [{"id": m["slug"], "name": m.get("display_name", m["slug"])}
             for m in result.get("models", []) if m.get("visibility") == "list"]
 
@@ -208,11 +238,15 @@ def describe(images, context="", model=None):
             content.append({"type": "input_text", "text": f"Frame at {timestamp:.2f} seconds:"})
         content.append({"type": "input_image", "image_url": "data:image/jpeg;base64," + base64.b64encode(data.getvalue()).decode()})
     body = {"model": selected, "input": [{"role": "user", "content": content}], "store": False, "stream": True}
+    account = load('accounts', {}).get('active')
+    credential = access(account)
     req = Request(API + "/responses", data=json.dumps(body).encode(), headers={
-        "Authorization": "Bearer " + access(), "Content-Type": "application/json"})
+        "Authorization": "Bearer " + credential, "Content-Type": "application/json"})
     try:
         response = urlopen(req, timeout=180)
     except HTTPError as e:
+        if e.code == 401:
+            record_access(account, credential, rejected=True)
         try:
             error = json.loads(e.read(8192)).get("error", {})
             code = error.get("code") if isinstance(error, dict) else error
@@ -239,6 +273,7 @@ def describe(images, context="", model=None):
                     text = "\n".join(parts[k] for k in sorted(parts)).strip()
                 if not text or len(text) > 32000:
                     raise PlanError("chatgpt_invalid_description")
+                record_access(account, credential)
                 return {"text": text, "model": selected, "at": time.time(),
                         "frame_times": [t for _, t in images if t is not None], "response_id": result.get("id")}
             if event.get("type") in ("error", "response.failed", "response.incomplete"):

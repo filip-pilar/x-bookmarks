@@ -609,17 +609,9 @@ def overview():
         counts = [dict(r) for r in c.execute("SELECT kind,state,count(*) AS count FROM stages GROUP BY kind,state")]
         issues = [dict(r) for r in c.execute("SELECT s.id,s.item,s.source,s.kind,s.state,s.attempts,s.next_at,s.error,s.run,i.title,i.author FROM stages s JOIN items i ON i.id=s.item WHERE i.active=1 AND s.state IN ('failed','blocked','browser','unavailable','waiting') ORDER BY CASE s.state WHEN 'failed' THEN 0 WHEN 'blocked' THEN 0 WHEN 'browser' THEN 0 ELSE 1 END,s.updated DESC LIMIT 100")]
         runs = [dict(r) for r in c.execute("SELECT * FROM runs WHERE EXISTS(SELECT 1 FROM jobs WHERE jobs.run=runs.id) OR EXISTS(SELECT 1 FROM stages WHERE stages.run=runs.id) ORDER BY CASE WHEN state='complete' THEN 1 ELSE 0 END,created DESC LIMIT 20")]
-        for run in runs:
-            work = c.execute("SELECT kind,json_extract(payload,'$.mode') AS mode FROM jobs WHERE run=? ORDER BY CASE kind WHEN 'sync' THEN 0 ELSE 1 END,created LIMIT 1", (run['id'],)).fetchone()
-            if not work:
-                run['label'] = 'Retry unfinished work'
-            elif work['kind'] == 'sync':
-                run['label'] = {'new': 'Sync new bookmarks', 'full': 'Full bookmark sync', 'folders': 'Folder sync', 'sample': 'Import 10 bookmarks'}.get(work['mode'], 'Bookmark sync')
-            else:
-                run['label'] = {'rebuild': 'Rebuild saved content', 'refresh': 'Refresh sources'}.get(work['mode'], 'Process bookmarks')
-            run['items'] = c.execute("SELECT count(DISTINCT item) FROM (SELECT item FROM jobs WHERE run=? UNION SELECT item FROM stages WHERE run=?) WHERE item!=''", (run['id'], run['id'])).fetchone()[0]
-            run['retryable_steps'] = c.execute("SELECT count(*) FROM (SELECT id FROM stages WHERE run=? AND state IN ('failed','blocked','waiting') UNION ALL SELECT id FROM jobs WHERE run=? AND state='failed')", (run['id'], run['id'])).fetchone()[0]
-            run['pending_steps'] = c.execute("SELECT count(*) FROM (SELECT id FROM stages WHERE run=? AND state IN ('queued','running','waiting') UNION ALL SELECT id FROM jobs WHERE run=? AND state IN ('queued','running','waiting'))", (run['id'], run['id'])).fetchone()[0]
+        import processing
+        runs = [processing.run_details(c, run) for run in runs]
+        processing_counts = processing.counts(c)
         progress = dict(c.execute("""SELECT
           count(DISTINCT CASE WHEN state IN ('queued','running','waiting','failed','blocked','browser') THEN item END) AS unfinished,
           count(DISTINCT CASE WHEN state IN ('failed','blocked','browser') THEN item END) AS needs_attention,
@@ -629,4 +621,4 @@ def overview():
           UNION ALL SELECT j.item,j.kind,j.state FROM jobs j JOIN items i ON i.id=j.item WHERE i.active=1)""").fetchone())
         progress['syncs'] = c.execute("SELECT count(*) FROM jobs WHERE kind='sync' AND state NOT IN ('complete','cancelled')").fetchone()[0]
         progress['sync_attention'] = c.execute("SELECT count(*) FROM jobs WHERE kind='sync' AND state='failed'").fetchone()[0]
-    return {"stage_counts": counts, "stage_issues": issues, "runs": runs, "progress": progress, "chatgpt": subscription.status(), "temporary_bytes": cache_size(), "temporary_limit": int(config().get("media_cache_bytes", CACHE_LIMIT))}
+    return {**processing_counts, "stage_counts": counts, "stage_issues": issues, "runs": runs, "progress": progress, "chatgpt": subscription.status(), "temporary_bytes": cache_size(), "temporary_limit": int(config().get("media_cache_bytes", CACHE_LIMIT))}

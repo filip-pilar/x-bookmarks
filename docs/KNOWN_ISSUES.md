@@ -1,6 +1,16 @@
 # Verification and remaining limitations
 
-Version 0.7.7 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.8 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.8 coverage and recovery
+
+The panel distinguishes a sample import, incomplete inventory and a completed API inventory check. Folder status distinguishes not synced, partial and completed checks; an empty folder list has no selector. Completing API pagination still does not establish historical completeness.
+
+Processing details groups source failures by bookmark and pages through issues and run history. An isolated database rehearsal covered 128 groups, 254 failed stages and 28 runs without page omissions or duplicates. Reads left saved work unchanged; a targeted retry changed only the selected bookmark's two failed stages. The browser rehearsal combined these generated cases with a copied library and verified first/last-page controls, narrow and dark layouts, sign-in states, and service loss/recovery without discarding the visible list. No real import or processing retry ran.
+
+Observed ChatGPT authorization rejection and revoked refresh credentials persist a sign-in-needed state. Temporary provider failures do not disconnect the account, and stale responses cannot invalidate replacement credentials. X records missing/rejected authorization separately from connection status. These paths were checked against an isolated HTTP provider and fixture credential store; the real accounts were not revoked. Status reports known credential health, not a fresh provider validation on every poll.
+
+Diagnostic export offers Download ZIP when the host supports downloads, Open file when it supports local files, and Copy file path as a fallback. Success/cancellation feedback was rehearsed through the host protocol. The ZIP bytes matched the local archive and excluded a private-data canary. Nothing is uploaded automatically. The installed 0.7.8 desktop panel was also checked directly: sample/folder coverage, Settings version, two completed runs, the empty issue state and the saved-post reader rendered. Open file opened the ZIP in the host file viewer; that host has no ZIP preview, but offers Archive Utility. “Use in ChatGPT” delivered the selected bookmark request to the real composer with send=false; the unsent verification draft was then cleared. No message was sent. All nine native preflight checks passed and nine audited library tables were unchanged after installation and the walkthrough. The ten-bookmark library stayed paused. This active chat retained an older MCP tool connection; a freshly opened sidebar panel used 0.7.8 successfully.
 
 ## Verified for 0.7.7 model selection
 

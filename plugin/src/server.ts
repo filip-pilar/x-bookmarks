@@ -11,7 +11,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home =
   process.env.BOOKMARK_LIBRARY_HOME ||
   join(homedir(), "Library/Application Support/BookmarkLibrary");
-const ui = "ui://bookmark-library/control-0.7.7.html";
+const ui = "ui://bookmark-library/control-0.7.8.html";
 const iconSource = await readFile(join(root, "assets/x-bookmark.svg"), "utf8");
 const icons = (["light", "dark"] as const).map((theme) => ({
   src:
@@ -52,7 +52,7 @@ async function ensure() {
     current = await request("status");
   } catch {}
   if (current) {
-    if (current.backend_version !== "0.7.7")
+    if (current.backend_version !== "0.7.8")
       throw new Error(
         "Bookmark Library backend needs a restart to load the installed update. Pause processing before restarting its local service.",
       );
@@ -92,7 +92,7 @@ async function ensure() {
           status = await request("status");
         } catch {}
         if (status) {
-          if (status.backend_version !== "0.7.7")
+          if (status.backend_version !== "0.7.8")
             throw new Error(
               "A different Bookmark Library backend is already running. Pause processing and restart its local service to load the update.",
             );
@@ -128,7 +128,7 @@ async function call(action: string, args: Record<string, unknown> = {}) {
   }
 }
 serveStdio(() => {
-  const server = new McpServer({ name: "bookmark-library", version: "0.7.7" });
+  const server = new McpServer({ name: "bookmark-library", version: "0.7.8" });
   const extensions = new OpenAIExtensions(server);
   server.registerResource(
     "controls",
@@ -519,6 +519,20 @@ serveStdio(() => {
       },
     },
     (args) => call("browser_capture", args),
+  );
+  server.registerTool(
+    "processing_details",
+    {
+      description:
+        "Page through saved processing issues grouped by bookmark, or all processing runs. Does not retry, import or resume work.",
+      inputSchema: z.object({
+        view: z.enum(["issues", "runs"]).default("issues"),
+        offset: z.number().int().nonnegative().default(0),
+        limit: z.number().int().min(1).max(50).default(20),
+      }),
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    (args) => call("processing_details", args),
   );
   server.registerTool(
     "export_diagnostics",

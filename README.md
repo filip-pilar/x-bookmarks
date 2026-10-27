@@ -34,7 +34,7 @@ Publishing a release makes updates available; it does not silently change anyone
 
 The private library, models, helpers and caches live under `~/Library/Application Support/BookmarkLibrary`; X credentials live in macOS Keychain; ChatGPT credentials live in protected private files excluded from releases/backups. Public releases contain no Client ID, credentials, library data, model weights or native executables.
 
-See the [plugin guide](plugin/README.md) for processing and backups. Export a sanitized diagnostic ZIP from Settings (or `plugin/scripts/diagnostics.py` if the UI cannot open), review its summary, then use the [bug report](https://github.com/filip-pilar/x-bookmarks/issues/new?template=bug_report.yml) with a redacted summary. Preserve saved queue/page diagnostics before retrying paid reads. Reaching the last API page does not independently prove every historical bookmark is available.
+See the [plugin guide](plugin/README.md) for processing and backups. Export a sanitized diagnostic ZIP from Settings (or `plugin/scripts/diagnostics.py` if the UI cannot open), use Download ZIP or Open file when supported by the host (otherwise Copy file path), review its summary, then use the [bug report](https://github.com/filip-pilar/x-bookmarks/issues/new?template=bug_report.yml) with a redacted summary. Preserve saved queue/page diagnostics before retrying paid reads. Reaching the last API page does not independently prove every historical bookmark is available.
 
 ## Development
 

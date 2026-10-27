@@ -967,7 +967,6 @@
         font-weight: 500;
       }
       #report {
-        white-space: pre-wrap;
         overflow-wrap: anywhere;
         font-size: 13px;
       }
@@ -990,6 +989,9 @@
       main:has(#progress:not([hidden])) .scrollport {
         padding-bottom: 184px;
       }
+      main:has(#connection-status:not([hidden])) .scrollport {
+        padding-bottom: 184px;
+      }
       #feedback-dock {
         position: fixed;
         z-index: 5;
@@ -1009,7 +1011,7 @@
       }
       #feedback-dock:has(#notice[hidden]):has(#error[hidden]):has(
           #refresh-content[hidden]
-        ):has(#progress[hidden]) {
+        ):has(#progress[hidden]):has(#connection-status[hidden]) {
         display: none;
       }
       #feedback-dock .feedback {
@@ -1028,14 +1030,52 @@
         background: transparent;
         border-radius: 0;
       }
-      #feedback-dock:has(#progress:not([hidden])):has(#error[hidden]):has(
-          #notice[hidden]
-        ):has(#refresh-content[hidden])
+      #feedback-dock:has(#error[hidden]):has(#notice[hidden]):has(
+          #refresh-content[hidden]
+        )
         #dismiss-feedback {
         display: none;
       }
       #feedback-dock:has(#progress:not([hidden])) {
         padding-right: 14px;
+      }
+      #connection-status,
+      .review-toolbar,
+      .review-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      #connection-status {
+        padding: 5px 0;
+      }
+      #folder-status {
+        margin: 8px 0;
+        font-size: 13px;
+      }
+      .review-footer {
+        position: sticky;
+        bottom: -24px;
+        background: var(--surface);
+        padding: 12px 0;
+        border-top: 1px solid var(--line);
+      }
+      #review-list[aria-busy="true"] {
+        opacity: 0.6;
+        pointer-events: none;
+      }
+      #review-list article {
+        padding: 14px 0;
+      }
+      #review-count {
+        font-variant-numeric: tabular-nums;
+      }
+      #report .actions {
+        margin-top: 4px;
+      }
+      #sync-coverage dd {
+        text-align: right;
       }
       .choice {
         min-width: 0;
@@ -1417,6 +1457,10 @@
         </div>
       </header>
       <aside id="feedback-dock" aria-label="Library updates">
+        <div id="connection-status" role="status" hidden>
+          <span id="connection-message">Library service unavailable</span
+          ><button id="retry-connection" class="quiet">Retry</button>
+        </div>
         <div id="error" class="feedback error" role="alert" hidden></div>
         <div id="notice" class="feedback" role="status" hidden></div>
         <button
@@ -1568,6 +1612,7 @@
         <div>
           <label id="folder-label" for="folder-trigger">Folder</label>
           <div id="folder" class="choice"></div>
+          <p id="folder-status" class="muted" hidden></p>
         </div>
         <div>
           <label id="sort-label" for="sort-trigger">Sort</label>
@@ -1686,6 +1731,9 @@
         </div>
         <div class="feedback error" role="alert" data-error hidden></div>
         <div class="feedback" role="status" data-notice hidden></div>
+        <p id="settings-connection" role="status" class="muted" hidden>
+          Connection lost. Status may be out of date.
+        </p>
         <section class="setting">
           <div class="setting-heading">
             <div>
@@ -1745,11 +1793,7 @@
         <section class="setting">
           <h3>Processing</h3>
           <p id="processing-state" class="muted"></p>
-          <div id="runs"></div>
-          <details id="older-runs" hidden>
-            <summary>History</summary>
-            <div id="run-history"></div>
-          </details>
+          <button id="settings-runs" class="quiet" hidden>View runs</button>
           <button id="browser-recovery" hidden>Recover pages in ChatGPT</button>
         </section>
         <section class="setting">
@@ -1768,7 +1812,14 @@
             Error details without bookmark content or credentials.
           </p>
           <button id="export">Export diagnostics</button>
-          <p id="report" class="muted" role="status" hidden></p>
+          <div id="report" hidden>
+            <p id="report-message" class="muted" role="status"></p>
+            <div class="actions">
+              <button id="report-save">Download ZIP</button
+              ><button id="report-open" class="quiet" hidden>Open file</button
+              ><button id="report-copy" class="quiet">Copy file path</button>
+            </div>
+          </div>
         </section>
         <p id="settings-version" class="muted"></p>
       </dialog>
@@ -1794,7 +1845,27 @@
         </div>
         <div class="feedback error" role="alert" data-error hidden></div>
         <div class="feedback" role="status" data-notice hidden></div>
-        <div id="issue-list" class="issues"></div>
+        <div class="review-toolbar">
+          <div class="view-switch" role="group" aria-label="Processing view">
+            <button id="review-issues" aria-pressed="true">Issues</button
+            ><button id="review-runs" aria-pressed="false">Runs</button>
+          </div>
+          <button id="review-refresh" class="quiet">Refresh</button>
+        </div>
+        <div id="review-list" class="issues" aria-busy="false"></div>
+        <p id="review-empty" class="muted" hidden></p>
+        <div class="review-footer">
+          <span
+            id="review-count"
+            class="muted"
+            role="status"
+            tabindex="-1"
+          ></span>
+          <div class="actions">
+            <button id="review-prev" class="quiet" disabled>Previous</button
+            ><button id="review-next" class="quiet" disabled>Next</button>
+          </div>
+        </div>
       </dialog>
       <dialog id="sync-dialog" aria-labelledby="sync-heading">
         <div class="dialog-header">
@@ -1818,6 +1889,11 @@
         </div>
         <div class="feedback error" role="alert" data-error hidden></div>
         <div class="feedback" role="status" data-notice hidden></div>
+        <dl id="sync-coverage" class="storage-list"></dl>
+        <p class="muted">
+          Coverage reflects what X’s API returned, not every historical
+          bookmark.
+        </p>
         <p>
           Capture bookmarks, their direct parent/quoted posts and linked pages.
         </p>
