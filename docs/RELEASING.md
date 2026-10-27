@@ -8,7 +8,7 @@ Users install a versioned ZIP with prebuilt JavaScript and **native source only*
 
 The macOS release workflow checks tag/version consistency, compiles native source for validation, builds JavaScript, and packages only the native source. Archive validation rejects `bin/`, models, private configuration, caches and library files. It creates a draft prerelease with `bookmark-library-release.zip`, `SHA256SUMS`, `SETUP_PROMPT.md` and `UPDATE_PROMPT.md`.
 
-Inspect workflow results, assets and release notes before publishing the draft. Keep preview status until fresh-recipient installation and the remaining runtime boundaries have been verified. The copy-paste prompts require v0.7.0 or later; earlier releases do not implement this setup contract.
+Inspect workflow results, assets and release notes before publishing the draft. Keep preview status until fresh-recipient installation and the remaining runtime boundaries have been verified. The copy-paste prompts require v0.7.1 or later; earlier releases do not implement this setup contract.
 
 CI proves build/package consistency. Generated-media preflight proves the tested local processing paths on that device. Neither proves recipient OAuth, arbitrary real media or X historical completeness. State these boundaries in release notes. GitHub hosting does not provide signing/notarization, and this source-only distribution does not require them from the maintainer.
 

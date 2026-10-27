@@ -13,7 +13,7 @@ Install Bookmark Library from https://github.com/filip-pilar/x-bookmarks. Read a
 
 Handle downloads, dependencies, local compilation, app configuration and recoverable problems yourself. Ask only for materially missing information or personal sign-in/2FA, legal acceptance, exact payment approval, administrator prompts or personal X/ChatGPT consent. Never ask for secrets in chat.
 
-Use the newest published release at version 0.7.0 or later and verify its ZIP checksum. Compile the native helpers on my Mac and download Gemma and Parakeet locally. No Apple Developer membership or signing from the repository owner is needed. Require the generated-media OCR, text/image/audio/video/joint embedding and real speech preflight to pass before calling setup ready.
+Use the newest published release at version 0.7.1 or later and verify its ZIP checksum. Compile the native helpers on my Mac and download Gemma and Parakeet locally. No Apple Developer membership or signing from the repository owner is needed. Require the generated-media OCR, text/image/audio/video/joint embedding and real speech preflight to pass before calling setup ready.
 
 Connect my ChatGPT plan through the supported flow, choose an available description model and verify generated image/frame descriptions. This small plan-usage check is authorized; never substitute paid API billing. Finish with the plugin discovered, my X account connected and the library paused. Do not import bookmarks, check folders, fetch bookmark sources, process saved content or create schedules. Preserve any existing library and use docs/UPDATE_PROMPT.md if this is an update. Report what you verified and any blocker.
 ```

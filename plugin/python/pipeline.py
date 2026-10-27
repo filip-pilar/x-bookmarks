@@ -17,6 +17,8 @@ def migrate(c):
       revision TEXT,run TEXT,state TEXT,payload TEXT,result TEXT DEFAULT '{}',attempts INTEGER DEFAULT 0,
       next_at REAL DEFAULT 0,error TEXT,updated REAL);
     CREATE INDEX IF NOT EXISTS stages_work ON stages(state,next_at,kind);
+    CREATE INDEX IF NOT EXISTS stages_item ON stages(item);
+    CREATE INDEX IF NOT EXISTS stages_run ON stages(run);
     CREATE TABLE IF NOT EXISTS assets(id TEXT PRIMARY KEY,descriptor TEXT,sha256 TEXT,state TEXT,bytes INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS observations(source TEXT,at REAL,metrics TEXT,PRIMARY KEY(source,at));
     CREATE TABLE IF NOT EXISTS captured_sources(id TEXT,revision TEXT,payload TEXT,at REAL,PRIMARY KEY(id,revision));
@@ -32,6 +34,7 @@ def migrate(c):
                       (revision, row["hash"], revision, row["id"]))
         c.execute("INSERT OR REPLACE INTO settings VALUES ('paused','true')")
     c.execute("UPDATE stages SET state='queued' WHERE state='running'")
+    c.execute("CREATE INDEX IF NOT EXISTS jobs_run ON jobs(run)")
 
 
 def authorize(run):
@@ -550,20 +553,35 @@ def retry(item=None, run=None):
     return {"retried": stages + jobs, "run": new_run if stages or jobs else None, "item": item}
 
 
+def clearable_assets(c, item):
+    assets = {r[0] for r in c.execute("SELECT DISTINCT coalesce(json_extract(payload,'$.asset'),CASE WHEN kind='download' THEN source END) FROM stages WHERE item=? AND state IN ('failed','blocked','unavailable')", (item,)) if r[0]}
+    result = []
+    for asset in assets:
+        busy = c.execute("SELECT 1 FROM stages WHERE (source=? OR json_extract(payload,'$.asset')=?) AND state IN ('running','queued','waiting') LIMIT 1", (asset, asset)).fetchone()
+        if busy:
+            continue
+        try:
+            size = sum(p.stat().st_size for p in asset_path(asset).rglob('*') if p.is_file())
+        except FileNotFoundError:
+            continue
+        if size:
+            result.append((asset, size))
+    return result
+
+
 def clear_cache(item=None):
     if not item:
         raise ValueError("Select a bookmark before clearing temporary media.")
     removed = 0
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
-        assets = {r[0] for r in c.execute("SELECT DISTINCT json_extract(payload,'$.asset') FROM stages WHERE item=?", (item,)) if r[0]}
-        for asset in assets:
+        for asset, size in clearable_assets(c, item):
             related = c.execute("SELECT * FROM stages WHERE source=? OR json_extract(payload,'$.asset')=?", (asset, asset)).fetchall()
             if any(r["state"] in ("running", "queued", "waiting") for r in related):
                 continue
             path = asset_path(asset)
             if path.exists():
-                removed += sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
+                removed += size
                 shutil.rmtree(path)
             c.execute("UPDATE assets SET state='evicted',bytes=0 WHERE id=?", (asset,))
             if any(r["state"] != "complete" for r in related):
@@ -575,6 +593,26 @@ def overview():
     import subscription
     with db() as c:
         counts = [dict(r) for r in c.execute("SELECT kind,state,count(*) AS count FROM stages GROUP BY kind,state")]
-        issues = [dict(r) for r in c.execute("SELECT id,item,source,kind,state,attempts,next_at,error,run FROM stages WHERE state IN ('failed','blocked','browser','unavailable','waiting') ORDER BY updated DESC LIMIT 100")]
-        runs = [dict(r) for r in c.execute("SELECT * FROM runs ORDER BY created DESC LIMIT 20")]
-    return {"stage_counts": counts, "stage_issues": issues, "runs": runs, "chatgpt": subscription.status(), "temporary_bytes": cache_size(), "temporary_limit": int(config().get("media_cache_bytes", CACHE_LIMIT))}
+        issues = [dict(r) for r in c.execute("SELECT s.id,s.item,s.source,s.kind,s.state,s.attempts,s.next_at,s.error,s.run,i.title,i.author FROM stages s JOIN items i ON i.id=s.item WHERE i.active=1 AND s.state IN ('failed','blocked','browser','unavailable','waiting') ORDER BY CASE s.state WHEN 'failed' THEN 0 WHEN 'blocked' THEN 0 WHEN 'browser' THEN 0 ELSE 1 END,s.updated DESC LIMIT 100")]
+        runs = [dict(r) for r in c.execute("SELECT * FROM runs WHERE EXISTS(SELECT 1 FROM jobs WHERE jobs.run=runs.id) OR EXISTS(SELECT 1 FROM stages WHERE stages.run=runs.id) ORDER BY CASE WHEN state='complete' THEN 1 ELSE 0 END,created DESC LIMIT 20")]
+        for run in runs:
+            work = c.execute("SELECT kind,json_extract(payload,'$.mode') AS mode FROM jobs WHERE run=? ORDER BY CASE kind WHEN 'sync' THEN 0 ELSE 1 END,created LIMIT 1", (run['id'],)).fetchone()
+            if not work:
+                run['label'] = 'Retry unfinished work'
+            elif work['kind'] == 'sync':
+                run['label'] = {'new': 'Sync new bookmarks', 'full': 'Full bookmark sync', 'folders': 'Folder sync'}.get(work['mode'], 'Bookmark sync')
+            else:
+                run['label'] = {'rebuild': 'Rebuild saved content', 'refresh': 'Refresh sources'}.get(work['mode'], 'Process bookmarks')
+            run['items'] = c.execute("SELECT count(DISTINCT item) FROM (SELECT item FROM jobs WHERE run=? UNION SELECT item FROM stages WHERE run=?) WHERE item!=''", (run['id'], run['id'])).fetchone()[0]
+            run['retryable_steps'] = c.execute("SELECT count(*) FROM (SELECT id FROM stages WHERE run=? AND state IN ('failed','blocked','waiting') UNION ALL SELECT id FROM jobs WHERE run=? AND state='failed')", (run['id'], run['id'])).fetchone()[0]
+            run['pending_steps'] = c.execute("SELECT count(*) FROM (SELECT id FROM stages WHERE run=? AND state IN ('queued','running','waiting') UNION ALL SELECT id FROM jobs WHERE run=? AND state IN ('queued','running','waiting'))", (run['id'], run['id'])).fetchone()[0]
+        progress = dict(c.execute("""SELECT
+          count(DISTINCT CASE WHEN state IN ('queued','running','waiting','failed','blocked','browser') THEN item END) AS unfinished,
+          count(DISTINCT CASE WHEN state IN ('failed','blocked','browser') THEN item END) AS needs_attention,
+          count(DISTINCT CASE WHEN kind IN ('download','image','video','audio','transcript','ocr','video_ocr','caption','video_caption') AND state NOT IN ('complete','unavailable','cancelled') THEN item END) AS unfinished_media,
+          count(DISTINCT CASE WHEN state='unavailable' THEN item END) AS unavailable
+          FROM (SELECT s.item,s.kind,s.state FROM stages s JOIN items i ON i.id=s.item WHERE i.active=1
+          UNION ALL SELECT j.item,j.kind,j.state FROM jobs j JOIN items i ON i.id=j.item WHERE i.active=1)""").fetchone())
+        progress['syncs'] = c.execute("SELECT count(*) FROM jobs WHERE kind='sync' AND state NOT IN ('complete','cancelled')").fetchone()[0]
+        progress['sync_attention'] = c.execute("SELECT count(*) FROM jobs WHERE kind='sync' AND state='failed'").fetchone()[0]
+    return {"stage_counts": counts, "stage_issues": issues, "runs": runs, "progress": progress, "chatgpt": subscription.status(), "temporary_bytes": cache_size(), "temporary_limit": int(config().get("media_cache_bytes", CACHE_LIMIT))}

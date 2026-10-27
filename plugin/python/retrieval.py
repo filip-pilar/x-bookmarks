@@ -142,7 +142,7 @@ def search(args):
         matches = []
         for _, chunk_id, score in ranked:
             r = c.execute(
-                "SELECT c.*,i.title,i.url,i.author,i.coverage,i.refreshed,i.membership FROM chunks c JOIN items i ON i.id=c.item WHERE c.id=?",
+                "SELECT c.*,i.title,i.url,i.author,i.raw,i.coverage,i.refreshed,i.membership FROM chunks c JOIN items i ON i.id=c.item WHERE c.id=?",
                 (chunk_id,),
             ).fetchone()
             if not r:
@@ -153,6 +153,8 @@ def search(args):
                     "item": r["item"],
                     "uri": "bookmark://item/" + r["item"],
                     "title": r["title"],
+                    "text": __import__("pipeline").post_text(json.loads(r["raw"]).get("post", {}))[:1600],
+                    "content_types": __import__("library").content_types(json.loads(r["raw"])),
                     "url": r["url"],
                     "author": r["author"],
                     "kind": r["kind"],

@@ -1,6 +1,12 @@
 # Verification and remaining limitations
 
-Version 0.7.0 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.1 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.1 UI polish
+
+The search-first layout, source-focused rows, compact view/filter controls, matched-evidence navigation, bookmark-level progress, named runs, quieter Settings and conditional recovery actions are implemented. Existing static/build checks and generated-data integration rehearsals are used; no unit tests are added.
+
+A local browser harness connected to the actual MCP server and backend used 70 generated bookmarks. It verified folder totals, list pagination, text-card gallery fallbacks, a cached thumbnail, a transcript match beyond the first evidence page, preserved disclosure/filter/back-focus state, delayed-request protection, dialog errors, zero-retry feedback, and a 390-pixel dark layout. Account display, provider errors and the zero-retry response were controlled fixtures; no personal sign-in, provider call, real import or installed-client activation was part of this UI pass. Source-only packaging does not install or publish it.
 
 ## Verified for 0.7.0
 

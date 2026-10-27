@@ -309,7 +309,7 @@ def status():
         jobs = [
             dict(r)
             for r in c.execute(
-                "SELECT id,kind,item,run,state,attempts,error,next_at,payload FROM jobs WHERE state NOT IN ('complete','cancelled') ORDER BY CASE kind WHEN 'sync' THEN 0 ELSE 1 END,created LIMIT 30"
+                "SELECT j.id,j.kind,j.item,j.run,j.state,j.attempts,j.error,j.next_at,j.payload,i.title,i.author FROM jobs j LEFT JOIN items i ON i.id=j.item WHERE j.state NOT IN ('complete','cancelled') ORDER BY CASE j.kind WHEN 'sync' THEN 0 ELSE 1 END,j.created LIMIT 30"
             )
         ]
         job_counts = [

@@ -26,7 +26,7 @@ Gemma produces local text/image/video/audio embeddings; Vision performs OCR and 
 
 Search combines semantic and lexical evidence and ranks distinct bookmarks. Read a result's saved evidence before making claims. Use `browse` to enumerate a full scope and `aggregate` for engagement analysis, rather than treating top matches as an exhaustive sample. Saved likes, replies, reposts, quotes, bookmark counts, impressions and media views are timestamped observations when X supplies them; missing values are unknown. Metric changes do not force media processing.
 
-The panel defaults to a list, with optional gallery/filter controls. Open an item for context, linked pages, descriptions, timed transcripts and details. “Use in ChatGPT” drafts a request; “Open on X” opens its source. Gallery thumbnails exist only while media is cached. Precise visual inspection or playback after eviction requires the original source.
+The panel leads with search, with a compact list/gallery switch and removable folder/sort chips. Search labels top matches and opens their matching passage or timed evidence. Open an item for distinct reply/quote context, expandable linked pages, descriptions and transcripts; source details hold engagement snapshots and relevant recovery actions. Back preserves filters, position and focus. “Use in ChatGPT” drafts a request; “Open on X” opens its source. Gallery thumbnails exist only while media is cached; other entries remain useful text cards. Precise visual inspection or playback after eviction requires the original source.
 
 ## Recovery and storage
 
@@ -38,7 +38,7 @@ Source capture, downloads, OCR, transcription, embeddings and descriptions check
 
 New temporary media uses `cache/media-v1`, normally limited to 2 GiB plus a 2 GiB free-disk reserve. Each encoded asset is limited to 192 MiB. All applicable outputs, including description/transcript text embeddings, must be committed before cleanup. Failed inputs remain bounded; backpressure stops new downloads. Explicit `clear_cache(item=...)` skips active work, preserves durable evidence and marks incomplete work as needing retrieval. Pre-0.7 originals are preserved until separately reviewed for cleanup.
 
-Settings shows storage and individual runs. Issue details link to the affected bookmark and retry. Export a diagnostic ZIP from Settings or run `scripts/diagnostics.py` with the runtime Python. It contains allowlisted versions, counts, anonymous task aliases, error codes and timings; excludes credentials, URLs, IDs, bookmark text and raw logs; and is never automatically uploaded. Review the summary before sharing it.
+Settings summarizes connected accounts and named runs; account/model controls, storage and older work expand when needed. Progress counts affected bookmarks rather than mixing processing-step totals. Issue details link to the affected bookmark and retry. Export a diagnostic ZIP from Settings or run `scripts/diagnostics.py` with the runtime Python. It contains allowlisted versions, counts, anonymous task aliases, error codes and timings; excludes credentials, URLs, IDs, bookmark text and raw logs; and is never automatically uploaded. Review the summary before sharing it.
 
 ## Privacy and backups
 

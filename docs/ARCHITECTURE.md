@@ -53,11 +53,13 @@ Historical evidence revisions are retained when a refreshed media/page source ch
 
 ## Reading and interface
 
-The list is the default; search uses lexical and semantic evidence and ranks distinct bookmarks. Folder filters and saved metric sorting are optional. Item details show saved text, direct context, expandable linked pages, descriptions, transcripts/OCR, engagement snapshots and actionable stage issues. Returning preserves list position.
+The list is the default; search uses lexical and semantic evidence and ranks distinct bookmarks. Folder filters and saved metric sorting are optional. Item details show saved text, direct context, expandable linked pages, descriptions, transcripts/OCR, engagement snapshots and actionable stage issues. Returning preserves the query, filters, view, scroll position and keyboard focus. Search shows up to 20 top matches with the matching source type, passage and timestamp; opening one targets that evidence even beyond the first page. Counts in browsing refer to the selected folder. Pagination keeps existing rows and defers offscreen rendering.
 
-“Use in ChatGPT” drafts a request without sending it. “Open on X” opens the original. The gallery uses currently cached images and text placeholders after eviction. The implementation keeps the existing vanilla TypeScript MCP panel. A live `react-tweet` renderer was a candidate, not a dependency: no public preview proxy or new React runtime is needed for the chosen saved-evidence view.
+“Use in ChatGPT” drafts a request without sending it. “Open on X” opens the original. The gallery uses currently cached images and readable text cards after eviction. The implementation keeps the existing vanilla TypeScript MCP panel. A live `react-tweet` renderer was a candidate, not a dependency: no public preview proxy or new React runtime is needed for the chosen saved-evidence view.
 
 Original inspection happens through the source/browser when the saved evidence is insufficient. Offline playback and a permanent image gallery are not promised. Search embeddings alone never substantiate claims about unseen pixels.
+
+Progress counts distinct affected bookmarks, alongside searchable content and unfinished media; overlapping categories are not added together. Named runs expose their scope, with older work collapsed in Settings. Account/model controls and storage are also collapsed. Polling preserves focus and open controls. Retry and cache-clear actions appear only when applicable; clearing explains that another download may be needed.
 
 Storage reports distinguish evidence/index, temporary media and models/runtime. Settings and item-linked issues expose retries, browser recovery and a one-click diagnostic ZIP. The ZIP contains allowlisted versions, counts, task aliases, error codes and timings, excluding credentials, account/post IDs, URLs, bookmark content and raw logs. It is created locally, never automatically uploaded. The offline `scripts/diagnostics.py` works if the UI cannot open.
 
