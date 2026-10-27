@@ -96,6 +96,8 @@ export class Choice {
     const id = this.element.id;
     // Menus inside a modal must stay in its top layer, outside its scrolling body.
     const modal = this.element.closest("dialog");
+    const container =
+      modal || this.element.closest("[popover]") || document.body;
     const boundary = modal || document.getElementById("library-scroll");
     this.root.render(
       h(
@@ -127,7 +129,7 @@ export class Choice {
         ),
         h(
           Select.Portal,
-          { container: modal || document.body },
+          { container },
           h(
             Select.Content,
             {

@@ -1,6 +1,14 @@
 # Verification and remaining limitations
 
-Version 0.7.5 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.6 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.6 filters, search and Settings
+
+Filters open in an anchored popover instead of inserting content above the library. Active filters use a fixed-position indicator, with selections and Reset inside the popover. Nested menus, Escape, outside interaction and keyboard focus are coordinated. The popover and its menus respect the reading area's composer clearance.
+
+Empty/whitespace-only Search leaves an unfiltered library or reader in place without another request. A dedicated clear control and Escape return active search results to the library. Late responses from a cleared query cannot replace the restored list. Repeating an already loaded query does not reload it.
+
+Settings pairs account names with their provider, exposes the description model directly, groups account management separately, labels expired sign-in and plan permission distinctly, and shows processing state, diagnostic privacy and the installed UI version. Browser rehearsals used the real panel/SDK with a copied library and controlled search/account responses; no provider or import actions were performed. The desktop shell/composer remain simulated, and already-open panels require reopening after installation.
 
 ## Verified for 0.7.5 controls
 

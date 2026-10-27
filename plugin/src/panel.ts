@@ -7,7 +7,8 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const app = new App({ name: "Bookmark Library", version: "0.7.5" }),
+const appInfo = { name: "Bookmark Library", version: "0.7.6" };
+const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
 const input = (id: string) => $(id) as HTMLInputElement;
@@ -30,6 +31,7 @@ const choices = new Map<string, Choice>([
 ]);
 const choice = (id: string) => choices.get(id)!;
 const dialog = (id: string) => $(id) as HTMLDialogElement;
+$("settings-version").textContent = `Version ${appInfo.version}`;
 type Metadata = {
   url?: string;
   source_id?: string;
@@ -256,6 +258,7 @@ function action(id: string, fn: () => Promise<void>) {
   b.onclick = () => void act(fn, b);
 }
 function showDialog(id: string) {
+  closeFilters();
   const d = dialog(id);
   for (const e of d.querySelectorAll<HTMLElement>(
     "[data-error], [data-notice]",
@@ -382,7 +385,7 @@ const stateLabel = (s: string) =>
   )[s] || s;
 function runHtml(r: Run) {
   const active = r.state === "running" && !state?.paused;
-  return `<article class="run" data-run-id="${esc(r.id)}"><p class="run-title">${esc(r.label)}${r.items ? " · " + count(r.items) : ""}</p><p class="muted">${esc(date(r.created))} · ${r.state === "complete" ? "Complete" : active ? "Running" : "Paused"}${!r.items && r.state !== "complete" ? " · scope discovered as pages arrive" : ""}</p><div class="actions">${r.pending_steps ? `<button data-action="${active ? "pause" : "resume"}" data-run="${esc(r.id)}">${active ? "Pause" : "Resume this run"}</button>` : ""}${r.retryable_steps ? `<button data-action="retry" data-run="${esc(r.id)}">Retry ${count(r.retryable_steps, "step")}</button>` : ""}</div></article>`;
+  return `<article class="run" data-run-id="${esc(r.id)}"><p class="run-title">${esc(r.label)}${r.items ? " · " + count(r.items) : ""}</p><p class="muted">${esc(date(r.created))} · ${r.state === "complete" ? "Complete" : active ? "Running" : "Paused"}${!r.items && r.state !== "complete" ? " · Finding bookmarks…" : ""}</p><div class="actions">${r.pending_steps ? `<button data-action="${active ? "pause" : "resume"}" data-run="${esc(r.id)}">${active ? "Pause" : "Resume"}</button>` : ""}${r.retryable_steps ? `<button data-action="retry" data-run="${esc(r.id)}">Retry ${count(r.retryable_steps, "step")}</button>` : ""}</div></article>`;
 }
 function renderRuns(s: State) {
   const active = s.runs.filter((r) => r.state === "running" && !s.paused);
@@ -394,13 +397,7 @@ function renderRuns(s: State) {
     ["runs", current],
     ["run-history", history],
   ] as const) {
-    if (
-      patch(
-        $(id),
-        runs.map(runHtml).join("") ||
-          '<p class="muted">No unfinished runs.</p>',
-      )
-    ) {
+    if (patch($(id), runs.map(runHtml).join(""))) {
       for (const b of $(id).querySelectorAll<HTMLButtonElement>(
         "[data-action]",
       ))
@@ -422,6 +419,16 @@ function renderRuns(s: State) {
           }, b);
     }
   }
+  $("runs").hidden = !current.length;
+  $("processing-state").textContent = current.length
+    ? s.paused
+      ? "Paused"
+      : active.length
+        ? "Running"
+        : "Waiting"
+    : s.paused
+      ? "Paused · Nothing waiting"
+      : "Nothing waiting";
   $("older-runs").hidden = !history.length;
 }
 function renderState(s: State) {
@@ -462,15 +469,34 @@ function renderState(s: State) {
   $("issues").hidden = !issues.length;
   $("manage-runs").hidden = !s.runs.some((r) => r.state !== "complete");
   $("x-account").textContent = s.connected
-    ? `@${s.account?.username || "Connected"}`
-    : "Connect your own X app and account to import bookmarks.";
+    ? s.account?.username
+      ? `@${s.account.username}`
+      : "Connected"
+    : "Not connected";
   $("connect-x").textContent = s.connected ? "Reconnect" : "Connect X";
+  $("connect-x").classList.toggle("quiet", s.connected);
+  const activeAccount = s.chatgpt.accounts.find(
+    (a) => a.id === s.chatgpt.active,
+  );
   $("chatgpt-state").textContent = s.chatgpt.connected
     ? s.chatgpt.plan_enabled
-      ? `Connected${s.chatgpt.model ? " · " + s.chatgpt.model : " · choose a model"}`
-      : "Plan permission needed"
-    : "Connect ChatGPT to describe images and video frames.";
+      ? activeAccount?.label || "Connected"
+      : "Permission needed"
+    : s.chatgpt.accounts.length
+      ? "Sign-in needed"
+      : "Not connected";
   $("connect-chatgpt").hidden = s.chatgpt.connected && s.chatgpt.plan_enabled;
+  $("connect-chatgpt").textContent = s.chatgpt.connected
+    ? "Authorize plan access"
+    : s.chatgpt.accounts.length
+      ? "Sign in again"
+      : "Connect ChatGPT";
+  $("reconnect-chatgpt").hidden =
+    !s.chatgpt.connected || !s.chatgpt.plan_enabled;
+  $("description-settings").hidden =
+    !s.chatgpt.connected || !s.chatgpt.plan_enabled;
+  $("account-settings").hidden = !s.chatgpt.accounts.length;
+  $("usage").hidden = !s.chatgpt.connected;
   $("disconnect-chatgpt").hidden = !s.chatgpt.accounts.length;
   $("load-models").hidden = !s.chatgpt.connected;
   $("storage").innerHTML = [
@@ -580,36 +606,57 @@ async function refresh() {
 function renderFilters() {
   const folder = choice("folder"),
     sort = choice("sort");
-  const activeFilters =
-    Number(!!folder.value) + Number(!!sort.value && !searching);
-  const chips = [
-    folder.value
-      ? `<button class="chip" data-clear="folder">${esc(folder.label)} <span aria-hidden="true">×</span><span class="sr-only">Remove folder filter</span></button>`
-      : "",
-    sort.value && !searching
-      ? `<button class="chip" data-clear="sort">${esc(sort.label)} <span aria-hidden="true">×</span><span class="sr-only">Reset sort</span></button>`
-      : "",
-  ].join("");
-  $("filter-chips").innerHTML =
-    chips +
-    (activeFilters > 1
-      ? '<button class="small-link" id="clear-filters">Clear filters</button>'
-      : "");
-  for (const b of $("filter-chips").querySelectorAll<HTMLButtonElement>(
-    "button",
-  ))
-    b.onclick = () =>
-      void act(async () => {
-        if (b.dataset.clear) choice(b.dataset.clear).value = "";
-        else {
-          folder.value = "";
-          sort.value = "";
-        }
-        $("filter-toggle").focus();
-        await load();
-      });
+  const active = Number(!!folder.value) + Number(!!sort.value && !searching);
+  $("filter-toggle").dataset.active = String(active > 0);
+  $("filter-toggle").setAttribute(
+    "aria-label",
+    active ? `Filters, ${active} active` : "Filters",
+  );
+  $("filter-toggle").title = [
+    folder.value ? folder.label : "",
+    sort.value && !searching ? sort.label : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  ($("reset-filters") as HTMLButtonElement).disabled =
+    !folder.value && !sort.value;
   sort.disabled = searching;
   sort.title = searching ? "Search results are ordered by relevance" : "";
+  $("sort-hint").hidden = !searching;
+  if ($("filters").matches(":popover-open")) positionFilters();
+}
+function positionFilters() {
+  const trigger = $("filter-toggle").getBoundingClientRect();
+  const popup = $("filters"),
+    rect = popup.getBoundingClientRect();
+  const bottom = $("library-scroll").getBoundingClientRect().bottom;
+  popup.style.left = `${Math.max(16, Math.min(trigger.left, innerWidth - rect.width - 16))}px`;
+  popup.style.top = `${Math.max(8, Math.min(trigger.bottom + 6, bottom - rect.height - 16))}px`;
+}
+function closeFilters(restoreFocus = false) {
+  if (!$("filters").matches(":popover-open")) return;
+  choice("folder").close();
+  choice("sort").close();
+  $("filters").hidePopover();
+  if (restoreFocus) $("filter-toggle").focus({ preventScroll: true });
+}
+function updateSearchControl() {
+  const query = input("query").value.trim();
+  const busy = loading && query === pendingQuery;
+  ($("search-submit") as HTMLButtonElement).disabled = busy;
+  if (busy) $("search-submit").setAttribute("aria-busy", "true");
+  else $("search-submit").removeAttribute("aria-busy");
+  $("clear-search").style.visibility =
+    query || searching || (loading && pendingQuery) ? "visible" : "hidden";
+}
+function clearSearch() {
+  input("query").value = "";
+  input("query").focus({ preventScroll: true });
+  if (searching || (loading && pendingQuery)) {
+    if (selected) showLibrary(false);
+    void act(() => load());
+  }
+  updateSearchControl();
 }
 async function load(reset = true) {
   const query = input("query").value.trim(),
@@ -691,6 +738,7 @@ async function load(reset = true) {
       ($("more") as HTMLButtonElement).disabled = false;
       $("search-submit").removeAttribute("aria-busy");
       $("more").removeAttribute("aria-busy");
+      updateSearchControl();
     }
   }
 }
@@ -838,6 +886,7 @@ function renderList() {
   $("more").hidden = next === null;
 }
 async function openItem(id: string, evidenceId?: string) {
+  closeFilters();
   const request = ++detailEpoch;
   const card = Array.from($("results").children).find(
     (e) => (e as HTMLElement).dataset.id === id,
@@ -1101,21 +1150,66 @@ async function refreshDetail(id: string, reloadEvidence = false) {
 }
 $("search-form").onsubmit = (e) => {
   e.preventDefault();
-  showLibrary(false);
+  const query = input("query").value.trim();
+  if (!query) {
+    clearSearch();
+    return;
+  }
+  if (query === loadedQuery && !loading) {
+    if (selected) showLibrary();
+    return;
+  }
+  closeFilters();
+  if (selected) showLibrary(false);
   void act(() => load());
 };
-input("query").oninput = () => {
-  // A changed query can supersede an in-flight request; duplicate submits cannot.
-  ($("search-submit") as HTMLButtonElement).disabled =
-    loading && input("query").value.trim() === pendingQuery;
+input("query").oninput = updateSearchControl;
+input("query").onkeydown = (e) => {
+  if (
+    e.key === "Escape" &&
+    (input("query").value || searching || (loading && pendingQuery))
+  ) {
+    e.preventDefault();
+    clearSearch();
+  }
 };
-$("filter-toggle").onclick = () => {
-  $("filters").hidden = !$("filters").hidden;
-  $("filter-toggle").setAttribute(
-    "aria-expanded",
-    String(!$("filters").hidden),
-  );
-};
+$("clear-search").onclick = clearSearch;
+$("filters").addEventListener("beforetoggle", (e) => {
+  if ((e as ToggleEvent).newState === "open")
+    requestAnimationFrame(() => {
+      if (!$("filters").matches(":popover-open")) return;
+      positionFilters();
+      $("folder-trigger").focus({ preventScroll: true });
+    });
+});
+$("filters").addEventListener("toggle", () => {
+  const open = $("filters").matches(":popover-open");
+  $("filter-toggle").setAttribute("aria-expanded", String(open));
+  if (!open) {
+    choice("folder").close();
+    choice("sort").close();
+  }
+});
+document.addEventListener("focusin", (e) => {
+  if (
+    e.target instanceof HTMLElement &&
+    e.target !== document.body &&
+    e.target !== $("filter-toggle") &&
+    !$("filters").contains(e.target)
+  )
+    closeFilters();
+});
+window.addEventListener("resize", () => {
+  if ($("filters").matches(":popover-open")) positionFilters();
+});
+$("close-filters").onclick = () => closeFilters(true);
+$("reset-filters").onclick = () =>
+  void act(async () => {
+    choice("folder").value = "";
+    choice("sort").value = "";
+    renderFilters();
+    await load();
+  });
 for (const [id, value] of [
   ["view-list", false],
   ["view-gallery", true],
