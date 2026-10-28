@@ -10,6 +10,11 @@ import subscription
 
 
 def main():
+    # This standalone preflight may precede service setup. Do not reset active jobs.
+    from store import db
+    import controls
+    with db() as c:
+        controls.migrate(c)
     selected = subscription.status().get('model')
     if not selected:
         raise SystemExit('Connect ChatGPT and select an available description model first.')

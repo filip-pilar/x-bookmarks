@@ -1410,6 +1410,25 @@
           padding-inline: 0;
         }
       }
+      .processing-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        margin: 18px 0;
+      }
+      .processing-grid label {
+        display: block;
+        margin-bottom: 8px;
+      }
+      .processing-options {
+        margin-top: 18px;
+      }
+      @media (max-width: 480px) {
+        .processing-grid {
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -1473,6 +1492,7 @@
         <div id="progress" hidden>
           <span id="progress-text"></span>
           <div class="actions">
+            <button id="process-imported" hidden>Process bookmarks</button>
             <button id="issues">Review</button
             ><button id="manage-runs">Manage</button
             ><button id="pause">Pause</button>
@@ -1752,7 +1772,8 @@
             <button id="usage" class="quiet" hidden>View usage ↗</button>
           </div>
           <p class="muted">
-            Image and video descriptions use your ChatGPT plan.
+            Image descriptions use your ChatGPT plan. Videos use local
+            transcription, OCR and embeddings.
           </p>
           <button id="connect-chatgpt">Connect ChatGPT</button>
           <div id="description-settings" hidden>
@@ -1795,6 +1816,44 @@
           <p id="processing-state" class="muted"></p>
           <button id="settings-runs" class="quiet" hidden>View runs</button>
           <button id="browser-recovery" hidden>Recover pages in ChatGPT</button>
+          <p id="description-cooldown" class="muted" role="status" hidden></p>
+          <button id="open-processing">Process saved bookmarks</button>
+          <details class="processing-options">
+            <summary>Advanced</summary>
+            <div class="processing-grid">
+              <div>
+                <label id="local-workers-label" for="local-workers-trigger"
+                  >Local workers</label
+                >
+                <div id="local-workers" class="choice"></div>
+              </div>
+              <div>
+                <label
+                  id="description-workers-label"
+                  for="description-workers-trigger"
+                  >Description workers</label
+                >
+                <div id="description-workers" class="choice"></div>
+              </div>
+              <div>
+                <label id="video-height-label" for="video-height-trigger"
+                  >Video resolution</label
+                >
+                <div id="video-height" class="choice"></div>
+              </div>
+              <div>
+                <label id="cache-gib-label" for="cache-gib-trigger"
+                  >Temporary space</label
+                >
+                <div id="cache-gib" class="choice"></div>
+              </div>
+            </div>
+            <p class="muted">
+              Higher resolution preserves small text. Temporary space excludes
+              models and saved evidence; processing also keeps 2 GiB free on
+              disk.
+            </p>
+          </details>
         </section>
         <section class="setting">
           <details>
@@ -1869,7 +1928,7 @@
       </dialog>
       <dialog id="sync-dialog" aria-labelledby="sync-heading">
         <div class="dialog-header">
-          <h2 id="sync-heading">Sync bookmarks</h2>
+          <h2 id="sync-heading">Import bookmarks</h2>
           <button
             class="quiet icon-only icon-button"
             data-close="sync-dialog"
@@ -1894,15 +1953,83 @@
           Coverage reflects what X’s API returned, not every historical
           bookmark.
         </p>
-        <p>
-          Capture bookmarks, their direct parent/quoted posts and linked pages.
-        </p>
         <p class="muted">
-          Uses X credits and your ChatGPT plan. Other paused runs stay paused.
+          Save posts, metrics and folders using X credits. Process media
+          separately.
+        </p>
+        <div class="processing-grid">
+          <div>
+            <label id="import-items-label" for="import-items-trigger"
+              >Bookmarks this run</label
+            >
+            <div id="import-items" class="choice"></div>
+          </div>
+          <div>
+            <label id="import-x-limit-label" for="import-x-limit-trigger"
+              >X request limit</label
+            >
+            <div id="import-x-limit" class="choice"></div>
+          </div>
+        </div>
+        <p class="muted">
+          Stops at the first limit. Request limits are not a spending cap.
         </p>
         <div class="actions">
           <button id="sync-new" class="primary">Sync new bookmarks</button
           ><button id="sync-full">Check all bookmarks</button>
+        </div>
+      </dialog>
+      <dialog id="processing-dialog" aria-labelledby="processing-heading">
+        <div class="dialog-header">
+          <h2 id="processing-heading">Process saved bookmarks</h2>
+          <button
+            class="quiet icon-only icon-button"
+            data-close="processing-dialog"
+            aria-label="Close processing"
+          >
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="feedback error" role="alert" data-error hidden></div>
+        <div class="feedback" role="status" data-notice hidden></div>
+        <p id="processing-scope"></p>
+        <p class="muted">
+          Capture direct context, linked pages and media. Completed evidence is
+          reused; other paused runs stay paused.
+        </p>
+        <div class="processing-grid">
+          <div>
+            <label id="process-x-limit-label" for="process-x-limit-trigger"
+              >X request limit</label
+            >
+            <div id="process-x-limit" class="choice"></div>
+          </div>
+          <div>
+            <label
+              id="process-description-limit-label"
+              for="process-description-limit-trigger"
+              >Image description limit</label
+            >
+            <div id="process-description-limit" class="choice"></div>
+          </div>
+        </div>
+        <p class="muted">
+          X reads use credits. Image descriptions share your ChatGPT allowance.
+          Videos are processed locally.
+        </p>
+        <div class="actions">
+          <button id="start-processing" class="primary">
+            Start processing
+          </button>
         </div>
       </dialog>
       <dialog id="clear-dialog" aria-labelledby="clear-heading">

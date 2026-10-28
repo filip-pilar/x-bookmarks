@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT / "package.json").read_text())["version"]
-PROCESSOR_VERSION = "5"
+PROCESSOR_VERSION = "6"
 HOME = Path(
     os.environ.get(
         "BOOKMARK_LIBRARY_HOME", "~/Library/Application Support/BookmarkLibrary"
@@ -178,7 +178,7 @@ def coverage_kind(message):
     return "retryable"
 
 
-def upsert_page(c, page, run=None):
+def upsert_page(c, page, run=None, process=True):
     includes = page.get("includes", {})
     users = {u["id"]: u for u in includes.get("users", [])}
     posts = page.get("data", [])
@@ -235,7 +235,7 @@ def upsert_page(c, page, run=None):
             for w in json.loads(row["coverage"])
         )
         changed = row["processed_hash"] != h
-        if changed or sample or row["processor"] != PROCESSOR_VERSION:
+        if process and (changed or sample or row["processor"] != PROCESSOR_VERSION):
             enqueue(
                 c,
                 "process",
@@ -253,8 +253,7 @@ def enqueue(c, kind, item="", payload=None, run=None):
         (kind, item),
     ).fetchone()
     if existing:
-        if run:
-            c.execute("UPDATE jobs SET run=? WHERE id=?", (run, existing[0]))
+        # Starting a new run must not move work out of another paused run.
         return existing[0]
     failed = c.execute(
         "SELECT id FROM jobs WHERE kind=? AND item=? AND state='failed' ORDER BY created DESC LIMIT 1",

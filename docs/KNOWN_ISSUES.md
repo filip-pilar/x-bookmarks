@@ -1,6 +1,20 @@
 # Verification and remaining limitations
 
-Version 0.7.8 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.9 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.9 bulk-processing controls
+
+Import saves inventory/text/metrics/folders without starting media processing. Process saved bookmarks is separate. Persistent item/request limits pause a run and can be increased before explicitly resuming. Defaults and their scope are documented in [Architecture](ARCHITECTURE.md#processing-and-temporary-storage); these counters are not a monetary spending cap.
+
+New videos use local transcripts, OCR and embeddings, without subscription descriptions. Existing completed video descriptions remain saved; unfinished video-description stages are cancelled without deleting originals. Video downloads use yt-dlp with a 480p target, adjustable in Advanced. Five-minute speech segments preserve absolute timestamps and use a one-second overlap. Tiny codec-padding tails merge into the preceding segment, and frame selection stops at the last real frame. The former 192 MiB video cap and four-hour ceiling are removed. The default temporary budget is 8 GiB plus a separate 2 GiB free-disk reserve; concurrent workers share reservations. Pausing/restarting releases unused reservations, retaining actual files. Normal service termination reaps managed downloads/transcribers before releasing its lock. Abrupt OS/process termination still requires restart recovery and is not a guarantee that every external process has exited immediately.
+
+An isolated real SQLite/HTTP rehearsal imported 135 generated posts over two pages, checked the empty-folder endpoint, and stopped exactly at item 37. Resuming consumed the cached remainder without another request; reaching the X request limit paused the run. Twelve concurrent callers claimed only seven permitted requests, with the count retained in a fresh interpreter. HTTP and streamed provider limit responses established account cooldowns without blocking local work. Diagnostic exports included budget state while excluding account IDs, source URLs and bookmark text. A migrated copy retained all 204 saved evidence chunks byte-for-byte. Full backup/restore retained evidence and returned paused.
+
+An actual yt-dlp download from a local HTTP fixture retrieved a generated two-hour MP4. Planning created 24 speech segments and 900 video windows with no video-description stages. Native Parakeet recovered the repeated controlled sentence in the final five-minute segment, with word times from 6902.36 to 7195.4 seconds; final-window frame decoding/OCR also completed. This is a repeated synthetic clip, not a two-hour real-podcast accuracy or throughput benchmark. All 900 windows were not processed as part of that rehearsal. A monitored subprocess was interrupted and resumed with its original preserved; competing cache admission correctly waited instead of evicting unfinished media.
+
+Two video-only retrieval queries on a copied real sample ranked the expected bookmark first using saved video embeddings, excluding descriptions, transcript and post-text chunks from the search. This supports the chosen recall path on those examples, not every silent demo or visual detail. Low resolution, sampling, English speech recognition and unavailable sources remain quality limits.
+
+The built panel was exercised through its MCP/SDK host harness: separate Import/Process controls, a direct processing action after import, themed budget/storage menus, persisted preferences without starting work, budget extension without resuming, and a 390-pixel layout without horizontal overflow. Saving a setting retains keyboard focus. The host/composer and provider actions were simulated; no real import or provider inference was performed during UI validation. Installation verification is recorded separately; an already-open desktop panel may need reopening.
 
 ## Verified for 0.7.8 coverage and recovery
 

@@ -119,9 +119,9 @@ class Handler(BaseHTTPRequestHandler):
             args = data.get("args", {})
             handlers = {
                 "status": lambda: query_status(args),
-                "sync": lambda: jobs.sync(args.get("mode", "new")),
+                "sync": lambda: jobs.sync(args.get("mode", "new"), args.get('process', False), args.get('limits')),
                 "process_saved": lambda: jobs.process_saved(
-                    args.get("mode", "rebuild"), args.get("item")
+                    args.get("mode", "rebuild"), args.get("item"), args.get('limits')
                 ),
                 "control": lambda: jobs.control(args["action"], args.get("run"), args.get("item")),
                 "connect": xapi.begin,
@@ -141,6 +141,8 @@ class Handler(BaseHTTPRequestHandler):
                 "aggregate": lambda: library.aggregate(args),
                 "diagnostics": diagnostics.export_report,
                 "processing_details": lambda: __import__("processing").page(args),
+                "processing_settings": lambda: __import__('controls').configure(args),
+                "extend_run": lambda: __import__('controls').extend(args),
                 "browser_pending": lambda: pages.pending(args.get("limit", 20)),
                 "browser_capture": lambda: pages.save(args),
                 "chatgpt_connect": lambda: subscription.begin(PORT, args.get("account")),
@@ -162,6 +164,13 @@ if __name__ == "__main__":
     except BlockingIOError:
         raise SystemExit(0)
     init()
+    def stop_service(signum, frame):
+        set_setting('paused', True)
+        __import__('media_runtime').stop_commands()
+        raise SystemExit(0)
+    import signal
+    signal.signal(signal.SIGTERM, stop_service)
+    signal.signal(signal.SIGINT, stop_service)
     if not preflight_ready():
         set_setting("paused", True)
         set_setting("pause_reason", "Run setup to build local helpers and verify processing for this plugin version.")
@@ -174,5 +183,6 @@ if __name__ == "__main__":
     for kind in ("sync", "process"):
         threading.Thread(target=jobs.loop, args=(kind,), daemon=True).start()
     for lane in ("local", "description"):
-        threading.Thread(target=pipeline.loop, args=(lane,), daemon=True).start()
+        for worker in range(4):
+            threading.Thread(target=pipeline.loop, args=(lane, worker), daemon=True).start()
     http.serve_forever()

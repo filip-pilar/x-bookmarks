@@ -28,11 +28,16 @@ def counts(c):
 
 def run_details(c, run):
     run = dict(run)
-    work = c.execute("SELECT kind,json_extract(payload,'$.mode') AS mode FROM jobs WHERE run=? ORDER BY CASE kind WHEN 'sync' THEN 0 ELSE 1 END,created LIMIT 1", (run['id'],)).fetchone()
+    limit = c.execute('SELECT * FROM run_limits WHERE run=?', (run['id'],)).fetchone()
+    run['limits'] = dict(limit) if limit else None
+    work = c.execute("SELECT kind,json_extract(payload,'$.mode') AS mode,json_extract(payload,'$.process') AS process FROM jobs WHERE run=? ORDER BY CASE kind WHEN 'sync' THEN 0 ELSE 1 END,created LIMIT 1", (run['id'],)).fetchone()
+    run['media_processing'] = bool(not work or work['kind'] != 'sync' or work['process'])
     run['label'] = ('Retry unfinished work' if not work else
         {'new': 'Sync new bookmarks', 'full': 'Full bookmark sync', 'folders': 'Folder sync', 'sample': 'Import 10 bookmarks'}.get(work['mode'], 'Bookmark sync') if work['kind'] == 'sync' else
         {'rebuild': 'Rebuild saved content', 'refresh': 'Refresh sources'}.get(work['mode'], 'Process bookmarks'))
     run['items'] = c.execute("SELECT count(DISTINCT item) FROM (SELECT item FROM jobs WHERE run=? UNION SELECT item FROM stages WHERE run=?) WHERE item!=''", (run['id'], run['id'])).fetchone()[0]
+    imported = c.execute("SELECT max(json_extract(payload,'$.returned')) FROM jobs WHERE run=? AND kind='sync'", (run['id'],)).fetchone()[0]
+    run['items'] = max(run['items'], imported or 0)
     run['retryable_steps'] = c.execute("SELECT count(*) FROM (SELECT id FROM stages WHERE run=? AND state IN ('failed','blocked','waiting') UNION ALL SELECT id FROM jobs WHERE run=? AND state='failed')", (run['id'], run['id'])).fetchone()[0]
     run['pending_steps'] = c.execute("SELECT count(*) FROM (SELECT id FROM stages WHERE run=? AND state IN ('queued','running','waiting') UNION ALL SELECT id FROM jobs WHERE run=? AND state IN ('queued','running','waiting'))", (run['id'], run['id'])).fetchone()[0]
     return run

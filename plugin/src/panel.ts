@@ -7,7 +7,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.7.8" };
+const appInfo = { name: "Bookmark Library", version: "0.7.9" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
@@ -30,6 +30,40 @@ const choices = new Map<string, Choice>([
   ["model", new Choice($("model"), [], "Choose a model")],
 ]);
 const choice = (id: string) => choices.get(id)!;
+for (const [id, values, suffix] of [
+  ["local-workers", [0, 1, 2, 3, 4], ""],
+  ["description-workers", [0, 1, 2, 3, 4], ""],
+  ["video-height", [240, 360, 480, 720, 1080], "p"],
+  ["cache-gib", [4, 8, 16, 32, 64, 128], " GiB"],
+  ["import-items", [100, 500, 1000, 0], ""],
+  ["import-x-limit", [25, 100, 500, 1000, 0], ""],
+  ["process-x-limit", [25, 100, 500, 1000, 0], ""],
+  ["process-description-limit", [25, 100, 500, 1000, 0], ""],
+] as const) {
+  choices.set(
+    id,
+    new Choice(
+      $(id),
+      values.map((value) => ({
+        value: String(value),
+        label:
+          value === 0
+            ? id.endsWith("workers")
+              ? "Automatic · 1"
+              : "No limit"
+            : String(value) + suffix,
+      })),
+    ),
+  );
+}
+let changingPreferences = false;
+function setChoiceValue(id: string, value: number) {
+  const c = choice(id),
+    v = String(value);
+  if (!c.options.some((o) => o.value === v))
+    c.setOptions([...c.options, { value: v, label: v }], v);
+  else c.value = v;
+}
 const dialog = (id: string) => $(id) as HTMLDialogElement;
 $("settings-version").textContent = `Version ${appInfo.version}`;
 type Metadata = {
@@ -78,6 +112,7 @@ type Stage = {
   run: string;
 };
 type Run = {
+  media_processing?: boolean;
   id: string;
   state: string;
   created: number;
@@ -85,8 +120,26 @@ type Run = {
   items: number;
   retryable_steps: number;
   pending_steps: number;
+  limits?: {
+    x_limit: number;
+    x_used: number;
+    description_limit: number;
+    description_used: number;
+    item_limit: number;
+    reason: string;
+  };
 };
 type State = {
+  preferences: {
+    cache_gib: number;
+    local_workers: number;
+    description_workers: number;
+    video_height: number;
+    x_requests: number;
+    description_requests: number;
+  };
+  cooldowns: { until: number; reason: string }[];
+  unprocessed: number;
   connected: boolean;
   account?: { username: string };
   total: number;
@@ -102,6 +155,7 @@ type State = {
     unfinished_media: number;
     unavailable: number;
     syncs: number;
+    sync_running: number;
     sync_attention: number;
   };
   temporary_bytes: number;
@@ -273,6 +327,18 @@ async function act(fn: () => Promise<void>, button?: HTMLButtonElement) {
         !button.closest("[hidden]")
       )
         button.focus({ preventScroll: true });
+      else if (
+        restoreFocus &&
+        document.activeElement === document.body &&
+        !button.isConnected &&
+        button.dataset.run &&
+        dialog("issues-dialog").open
+      ) {
+        const replacement = $("review-list").querySelector<HTMLButtonElement>(
+          `[data-run-id="${CSS.escape(button.dataset.run)}"] button`,
+        );
+        (replacement || $("review-count")).focus({ preventScroll: true });
+      }
     }
   }
 }
@@ -290,6 +356,19 @@ function showDialog(id: string) {
   for (const c of choices.values()) c.close();
   d.showModal();
   if (id === "settings-dialog") void loadModels();
+  if (id === "sync-dialog") {
+    setChoiceValue("import-items", 100);
+    setChoiceValue("import-x-limit", state?.preferences?.x_requests ?? 100);
+  }
+  if (id === "processing-dialog") {
+    $("processing-scope").textContent =
+      `${count(state?.total || 0)} · Existing library only`;
+    setChoiceValue("process-x-limit", state?.preferences?.x_requests ?? 100);
+    setChoiceValue(
+      "process-description-limit",
+      state?.preferences?.description_requests ?? 100,
+    );
+  }
 }
 async function openUrl(url: string) {
   if (!/^https?:\/\//.test(url))
@@ -373,28 +452,36 @@ const evidenceLabel = (kind = "text") =>
     }) as Record<string, string>
   )[kind] || kind;
 const issueText = (error: string | null = "") =>
-  (
-    ({
-      chatgpt_sign_in_required: "Reconnect ChatGPT in Settings.",
-      chatgpt_plan_consent_required: "Allow this app to use your ChatGPT plan.",
-      chatgpt_model_selection_required:
-        "Choose a description model in Settings.",
-      temporary_storage_full:
-        "Temporary storage is full. Finish pending descriptions or clear selected failed media.",
-      temporary_budget_too_small:
-        "This media needs more temporary space than the configured budget allows.",
-      source_retrieval_required:
-        "The original must be downloaded again before this step can finish.",
-      authentication_or_challenge:
-        "This page needs browser access or personal sign-in.",
-      incomplete_extraction:
-        "The readable page content could not be captured completely.",
-      partial_browser_capture:
-        "Some page content still needs browser recovery.",
-      processing_paused:
-        "Saved progress will continue when this run is resumed.",
-    }) as Record<string, string>
-  )[error || ""] || (error || "").replaceAll("_", " ");
+  error?.startsWith("temporary_budget_required:")
+    ? `Increase temporary space in Settings to at least ${error.split(":")[1]} GiB. Progress is saved.`
+    : (
+        {
+          chatgpt_sign_in_required: "Reconnect ChatGPT in Settings.",
+          chatgpt_plan_consent_required:
+            "Allow this app to use your ChatGPT plan.",
+          chatgpt_model_selection_required:
+            "Choose a description model in Settings.",
+          temporary_storage_full:
+            "Temporary space is full. Increase it in Settings, finish pending work or clear selected failed media.",
+          disk_space_low:
+            "Free disk space before continuing. Processing keeps a separate 2 GiB disk reserve.",
+          chatgpt_cooldown:
+            "ChatGPT is waiting for its allowance to reset. Local processing continues.",
+          yt_dlp_missing: "Update setup to install yt-dlp for video downloads.",
+          temporary_budget_too_small:
+            "This media needs more temporary space than the configured budget allows.",
+          source_retrieval_required:
+            "The original must be downloaded again before this step can finish.",
+          authentication_or_challenge:
+            "This page needs browser access or personal sign-in.",
+          incomplete_extraction:
+            "The readable page content could not be captured completely.",
+          partial_browser_capture:
+            "Some page content still needs browser recovery.",
+          processing_paused:
+            "Saved progress will continue when this run is resumed.",
+        } as Record<string, string>
+      )[error || ""] || (error || "").replaceAll("_", " ");
 const stateLabel = (s: string) =>
   (
     ({
@@ -409,7 +496,12 @@ const stateLabel = (s: string) =>
   )[s] || s;
 function runHtml(r: Run) {
   const active = r.state === "running" && !state?.paused;
-  return `<article class="run" data-run-id="${esc(r.id)}"><p class="run-title">${esc(r.label)}${r.items ? " · " + count(r.items) : ""}</p><p class="muted">${esc(date(r.created))} · ${r.state === "complete" ? "Complete" : active ? "Running" : "Paused"}${!r.items && r.state !== "complete" ? " · Finding bookmarks…" : ""}</p><div class="actions">${r.pending_steps ? `<button data-action="${active ? "pause" : "resume"}" data-run="${esc(r.id)}">${active ? "Pause" : "Resume"}</button>` : ""}${r.retryable_steps ? `<button data-action="retry" data-run="${esc(r.id)}">Retry ${count(r.retryable_steps, "step")}</button>` : ""}</div></article>`;
+  const b = r.limits,
+    limited = !!b?.reason;
+  const usage = b
+    ? `<p class="muted">X requests ${number(b.x_used)} / ${b.x_limit ? number(b.x_limit) : "unlimited"}${r.media_processing ? ` · Image descriptions ${number(b.description_used)} / ${b.description_limit ? number(b.description_limit) : "unlimited"}` : ""}</p>`
+    : "";
+  return `<article class="run" data-run-id="${esc(r.id)}"><p class="run-title">${esc(r.label)}${r.items ? " · " + count(r.items) : ""}</p><p class="muted">${esc(date(r.created))} · ${r.state === "complete" ? "Complete" : limited ? "Limit reached" : active ? "Running" : "Paused"}</p>${usage}<div class="actions">${limited ? `<button data-extend="${esc(b!.reason)}" data-run="${esc(r.id)}">Add 100 ${b!.reason === "items" ? "bookmarks" : b!.reason === "x" ? "X requests" : "image descriptions"}</button>` : r.pending_steps ? `<button data-action="${active ? "pause" : "resume"}" data-run="${esc(r.id)}">${active ? "Pause" : "Resume"}</button>` : ""}${r.retryable_steps && !limited ? `<button data-action="retry" data-run="${esc(r.id)}">Retry ${count(r.retryable_steps, "step")}</button>` : ""}</div></article>`;
 }
 type ReviewItem = {
   key: string;
@@ -449,7 +541,7 @@ async function loadReview(offset = 0) {
         : r.items
             .map(
               (g: ReviewItem) =>
-                `<article><p class="issue-title">${esc(g.author ? "@" + g.author + " · " : "")}${esc(g.title)}</p><p class="muted">${esc(stateLabel(g.state))} · ${count(g.steps, "step")}</p><p class="muted">${esc(g.kinds.map(stageLabel).join(" · "))}</p>${g.error ? `<p>${esc(issueText(g.error))}</p>` : ""}<div class="actions">${g.item ? `<button data-item="${esc(g.item)}">Open bookmark</button>` : ""}${g.account ? "<button data-settings>Open settings</button>" : ""}${g.browser ? "<button data-recovery>Recover pages</button>" : ""}${g.retryable && !g.account ? `<button data-action="retry" data-item-retry="${esc(g.item)}" data-run="${esc(g.run)}">Retry failed steps</button>` : ""}</div></article>`,
+                `<article><p class="issue-title">${esc(g.author ? "@" + g.author + " · " : "")}${esc(g.title)}</p><p class="muted">${esc(stateLabel(g.state))} · ${count(g.steps, "step")}</p><p class="muted">${esc(g.kinds.map(stageLabel).join(" · "))}</p>${g.error ? `<p>${esc(issueText(g.error))}</p>` : ""}<div class="actions">${g.item ? `<button data-item="${esc(g.item)}">Open bookmark</button>` : ""}${g.account || g.error?.startsWith("temporary_") ? "<button data-settings>Open settings</button>" : ""}${g.browser ? "<button data-recovery>Recover pages</button>" : ""}${g.retryable && !g.account ? `<button data-action="retry" data-item-retry="${esc(g.item)}" data-run="${esc(g.run)}">Retry failed steps</button>` : ""}</div></article>`,
             )
             .join("");
     $("review-empty").hidden = r.total > 0;
@@ -464,7 +556,16 @@ async function loadReview(offset = 0) {
     ))
       button.onclick = () =>
         void act(async () => {
-          if (button.dataset.item) {
+          if (button.dataset.extend) {
+            await call("extend_run", {
+              run: button.dataset.run,
+              kind: button.dataset.extend,
+              amount: 100,
+            });
+            await refresh();
+            await loadReview(reviewOffset);
+            feedback("notice", "Limit increased. Resume when ready.");
+          } else if (button.dataset.item) {
             dialog("issues-dialog").close();
             await openItem(button.dataset.item);
           } else if (button.hasAttribute("data-settings")) {
@@ -683,8 +784,14 @@ function renderState(s: State) {
   for (const id of ["sync", "settings"])
     ($(id) as HTMLButtonElement).disabled = false;
   const p = s.progress;
-  $("progress").hidden = !(p.unfinished || p.unavailable || p.syncs);
+  $("progress").hidden = !(
+    p.unfinished ||
+    p.unavailable ||
+    p.syncs ||
+    s.unprocessed
+  );
   const parts = [`${number(s.searchable)} of ${count(s.total)} searchable`];
+  if (s.unprocessed) parts.push(`${number(s.unprocessed)} ready to process`);
   if (p.unfinished_media)
     parts.push(`${count(p.unfinished_media)} with unfinished media`);
   else if (p.unfinished)
@@ -697,7 +804,7 @@ function renderState(s: State) {
     parts.push(
       p.sync_attention
         ? "Sync needs attention"
-        : s.paused
+        : s.paused || !p.sync_running
           ? "Sync paused"
           : "Sync in progress",
     );
@@ -706,6 +813,7 @@ function renderState(s: State) {
   $("pause").hidden = s.paused || !s.running_run_count;
   $("issues").hidden = !s.processing_issue_count;
   $("manage-runs").hidden = !s.run_count;
+  $("process-imported").hidden = !s.unprocessed;
   $("x-account").textContent = s.connected
     ? s.account?.username
       ? `@${s.account.username}`
@@ -779,6 +887,23 @@ function renderState(s: State) {
     : s.running_run_count
       ? "Running"
       : "Nothing waiting";
+  if (!changingPreferences && s.preferences) {
+    for (const [id, key] of [
+      ["cache-gib", "cache_gib"],
+      ["local-workers", "local_workers"],
+      ["description-workers", "description_workers"],
+      ["video-height", "video_height"],
+    ] as const) {
+      if (!choice(id).focused) setChoiceValue(id, s.preferences[key]);
+    }
+  }
+  const cooldown =
+    s.cooldowns?.reduce((until, c) => Math.max(until, c.until), 0) || 0;
+  $("description-cooldown").hidden = !cooldown;
+  $("description-cooldown").textContent = cooldown
+    ? `Image descriptions waiting until ${new Date(cooldown * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Local processing can continue.`
+    : "";
+  ($("open-processing") as HTMLButtonElement).disabled = !s.total;
   $("settings-runs").hidden = !s.run_count;
   $("settings-runs").textContent =
     `View ${number(s.run_count)} ${s.run_count === 1 ? "run" : "runs"}`;
@@ -1482,7 +1607,14 @@ for (const [id, mode] of [
   ["sync-full", "full"],
 ])
   action(id, async () => {
-    await call("sync", { mode });
+    await call("sync", {
+      mode,
+      process: false,
+      limits: {
+        items: Number(choice("import-items").value),
+        x_requests: Number(choice("import-x-limit").value),
+      },
+    });
     dialog("sync-dialog").close();
     await refresh();
   });
@@ -1491,6 +1623,58 @@ action("pause", async () => {
   await refresh();
   feedback("notice", "Processing will pause after its current step.");
 });
+$("open-processing").onclick = () => {
+  dialog("settings-dialog").close();
+  showDialog("processing-dialog");
+};
+$("process-imported").onclick = () => showDialog("processing-dialog");
+action("start-processing", async () => {
+  const result = await call("process_saved", {
+    mode: "repair",
+    limits: {
+      x_requests: Number(choice("process-x-limit").value),
+      description_requests: Number(choice("process-description-limit").value),
+    },
+  });
+  dialog("processing-dialog").close();
+  await refresh();
+  feedback(
+    "notice",
+    result.queued
+      ? "Processing started."
+      : "Existing work is already queued. Open Runs to resume it.",
+  );
+});
+for (const [id, key] of [
+  ["cache-gib", "cache_gib"],
+  ["local-workers", "local_workers"],
+  ["description-workers", "description_workers"],
+  ["video-height", "video_height"],
+] as const) {
+  choice(id).onChange = () =>
+    void act(async () => {
+      const previous = state?.preferences[key] ?? 0;
+      changingPreferences = true;
+      choice(id).disabled = true;
+      try {
+        await call("processing_settings", { [key]: Number(choice(id).value) });
+        await refresh();
+      } catch (error) {
+        setChoiceValue(id, previous);
+        throw error;
+      } finally {
+        changingPreferences = false;
+        choice(id).disabled = false;
+        requestAnimationFrame(() => {
+          if (
+            document.activeElement === document.body &&
+            dialog("settings-dialog").open
+          )
+            choice(id).focus();
+        });
+      }
+    });
+}
 action("connect-x", async () => {
   const r = await call("connect_x");
   await openUrl(r.url);

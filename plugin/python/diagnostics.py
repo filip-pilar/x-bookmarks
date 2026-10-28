@@ -22,8 +22,10 @@ def export_report():
     def code(value):
         # User/source text may appear in arbitrary errors; export known codes only.
         raw = str(value or "")
+        if re.fullmatch(r'temporary_budget_required:[0-9]+', raw):
+            return raw
         for candidate in (raw, raw.split(": ", 1)[-1]):
-            if re.fullmatch(r"(?:chatgpt_|subscription_sharing_|source_|x_http_|temporary_|pdf_|reader_|frame_|login_|partial_|saved_|authentication_|incomplete_|private_|invalid_|media_)[a-z0-9_]{1,90}", candidate):
+            if re.fullmatch(r"(?:disk_|run_limit_|chatgpt_|subscription_sharing_|source_|x_http_|temporary_|pdf_|reader_|frame_|login_|partial_|saved_|authentication_|incomplete_|private_|invalid_|media_)[a-z0-9_]{1,90}", candidate):
                 return candidate
         if "macOS Vision helper failed" in raw:
             return "vision_helper_failed"
@@ -42,10 +44,12 @@ def export_report():
                          "progress": {k: v for k, v in payload.items() if k in ("pages", "returned", "partial_pages") and isinstance(v, (int, bool))}})
         calls = [dict(r) for r in c.execute("SELECT status,count(*) AS requests,sum(records) AS records FROM calls GROUP BY status")]
         counts = {r[0]: r[1] for r in c.execute("SELECT state,count(*) FROM items GROUP BY state")}
+        limits = [{**dict(r), 'run': alias(r['run'])} for r in c.execute('SELECT * FROM run_limits ORDER BY rowid DESC LIMIT 100')] if 'run_limits' in tables else []
     checks = (preflight_status() or {}).get("checks", {})
     report = {"version": VERSION, "created_at": time.time(), "os": platform.system(), "os_version": platform.mac_ver()[0], "architecture": platform.machine(),
               "disk_free": shutil.disk_usage(HOME).free, "items_by_state": counts, "preflight": {k: {"ok": v.get("ok") is True} for k, v in checks.items()},
-              "stage_counts": stage_counts, "stage_details_truncated": attention > len(stages), "stages": stages, "jobs": jobs, "http_status_counts": calls}
+              "stage_counts": stage_counts, "stage_details_truncated": attention > len(stages), "stages": stages, "jobs": jobs, "http_status_counts": calls,
+              "run_limits": limits, "processing_preferences": __import__('controls').preferences()}
     summary = f"Bookmark Library {VERSION}\n{sum(counts.values())} saved bookmarks\n{sum(r['count'] for r in stage_counts)} processing stages\n{attention} stages need attention, are waiting or unavailable\n\nContains versions, counts, task aliases, error codes and timings. Excludes credentials, account/post IDs, URLs, bookmark contents and raw logs.\n"
     directory = HOME / "reports"
     directory.mkdir(exist_ok=True)

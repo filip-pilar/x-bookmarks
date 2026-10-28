@@ -1,6 +1,6 @@
 # X Bookmark Library
 
-Search your X bookmarks, images, videos and transcripts from a local Codex/ChatGPT desktop chat. OCR, transcription and embeddings run on your Mac. Visual descriptions use your authorized ChatGPT plan; durable evidence remains searchable after temporary media is removed.
+Search your X bookmarks, images, videos and transcripts from a local Codex/ChatGPT desktop chat. OCR, transcription and embeddings run on your Mac. Image descriptions use your authorized ChatGPT plan; videos use local transcripts, OCR and embeddings; durable evidence remains searchable after temporary media is removed.
 
 **Preview:** generated-media processing and controlled import recovery have passed locally. Fresh-recipient installation and X historical coverage remain separate verification steps. See [remaining limitations](docs/KNOWN_ISSUES.md).
 
@@ -53,3 +53,5 @@ python3 scripts/check-release.py --archive release/bookmark-library-release.zip
 CI checks source/build consistency, compiles native source on Apple silicon, and validates the ZIP excludes native executables and private data. Tags prepare draft releases with the ZIP, checksums and copy-paste prompts. See [releasing](docs/RELEASING.md). No unit tests are used.
 
 [MIT license](LICENSE). [Third-party notices](plugin/THIRD_PARTY_NOTICES.md).
+
+Import and Process are separate actions. Review the displayed run limits before starting a full library; 0 means unlimited in tools. Settings → Processing → Advanced controls temporary space (8 GiB default), video resolution (480p default) and workers (one per lane by default). Limits and progress persist across restarts; reaching a limit pauses the run rather than discarding work. See [processing and storage](docs/ARCHITECTURE.md#processing-and-temporary-storage).

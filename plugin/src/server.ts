@@ -11,7 +11,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home =
   process.env.BOOKMARK_LIBRARY_HOME ||
   join(homedir(), "Library/Application Support/BookmarkLibrary");
-const ui = "ui://bookmark-library/control-0.7.8.html";
+const ui = "ui://bookmark-library/control-0.7.9.html";
 const iconSource = await readFile(join(root, "assets/x-bookmark.svg"), "utf8");
 const icons = (["light", "dark"] as const).map((theme) => ({
   src:
@@ -52,7 +52,7 @@ async function ensure() {
     current = await request("status");
   } catch {}
   if (current) {
-    if (current.backend_version !== "0.7.8")
+    if (current.backend_version !== "0.7.9")
       throw new Error(
         "Bookmark Library backend needs a restart to load the installed update. Pause processing before restarting its local service.",
       );
@@ -92,7 +92,7 @@ async function ensure() {
           status = await request("status");
         } catch {}
         if (status) {
-          if (status.backend_version !== "0.7.8")
+          if (status.backend_version !== "0.7.9")
             throw new Error(
               "A different Bookmark Library backend is already running. Pause processing and restart its local service to load the update.",
             );
@@ -128,7 +128,14 @@ async function call(action: string, args: Record<string, unknown> = {}) {
   }
 }
 serveStdio(() => {
-  const server = new McpServer({ name: "bookmark-library", version: "0.7.8" });
+  const server = new McpServer({ name: "bookmark-library", version: "0.7.9" });
+  const runLimits = z
+    .object({
+      x_requests: z.number().int().min(0).max(100000).optional(),
+      description_requests: z.number().int().min(0).max(100000).optional(),
+      items: z.number().int().min(0).max(100000).optional(),
+    })
+    .optional();
   const extensions = new OpenAIExtensions(server);
   server.registerResource(
     "controls",
@@ -368,9 +375,18 @@ serveStdio(() => {
     "sync",
     {
       description:
-        "Import the first inventory, or sync new bookmarks in pages of 10 until an entirely previously saved page is reached. mode=sample imports at most 10 recent bookmarks and their direct sources without scanning folders; mode=full checks all exposed pages and folders. Routine sync refreshes folders when their last check is at least 24 hours old. Saved sources are reused; no automatic 24-hour context refresh. X reads use credits. Only call for an explicit import/sync request or an authorized automation.",
+        "Import the first inventory, or sync new bookmarks in pages of 10 until an entirely previously saved page is reached. mode=sample imports at most 10 recent bookmarks without scanning folders; mode=full checks all exposed pages and folders. Routine sync refreshes folders when their last check is at least 24 hours old. Saved sources are reused; no automatic 24-hour context refresh. Media processing is separate by default; pass process=true only when also authorized. X reads use credits. Only call for an explicit import/sync request or an authorized automation.",
       inputSchema: z.object({
         mode: z.enum(["new", "full", "sample"]).default("new"),
+        process: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Explicitly authorize media/context processing after import. Default saves inventory and post text only.",
+          ),
+        limits: runLimits.describe(
+          "Persistent per-run request and item limits. Zero means unlimited. Defaults: 100 X requests, 100 image descriptions, no item limit. Requests are not a monetary cap.",
+        ),
       }),
       annotations: {
         readOnlyHint: false,
@@ -388,6 +404,7 @@ serveStdio(() => {
         "Process already imported items without scanning bookmarks. rebuild uses retained sources without network fetching; repair fetches missing sources; refresh deliberately refetches source context and may use X credits. Require an explicit request for repair or refresh. Does not run a bookmark import.",
       inputSchema: z.object({
         mode: z.enum(["rebuild", "repair", "refresh"]),
+        limits: runLimits.unwrap().omit({ items: true }).optional(),
         item: z
           .string()
           .regex(/^\d{1,25}$/)
@@ -435,6 +452,53 @@ serveStdio(() => {
       _meta: { ui: { visibility: ["app"] } },
     },
     () => call("disconnect"),
+  );
+  server.registerTool(
+    "processing_settings",
+    {
+      description:
+        "Change local processing preferences without starting or resuming any work. Worker count 0 selects automatic (one). Default request budgets apply only to new runs.",
+      inputSchema: z.object({
+        cache_gib: z.number().int().min(4).max(128).optional(),
+        local_workers: z.number().int().min(0).max(4).optional(),
+        description_workers: z.number().int().min(0).max(4).optional(),
+        video_height: z
+          .union([
+            z.literal(240),
+            z.literal(360),
+            z.literal(480),
+            z.literal(720),
+            z.literal(1080),
+          ])
+          .optional(),
+        x_requests: z.number().int().min(0).max(100000).optional(),
+        description_requests: z.number().int().min(0).max(100000).optional(),
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    (args) => call("processing_settings", args),
+  );
+  server.registerTool(
+    "extend_run",
+    {
+      description:
+        "Explicitly add to an existing run limit. Counts are preserved; this does not resume the run. X requests use credits, image descriptions use the ChatGPT plan.",
+      inputSchema: z.object({
+        run: z.string(),
+        kind: z.enum(["x", "description", "items"]),
+        amount: z.number().int().min(1).max(100000),
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    (args) => call("extend_run", args),
   );
   const localTools = [
     [

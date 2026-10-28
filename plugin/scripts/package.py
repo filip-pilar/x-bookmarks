@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Package JavaScript bundles and native source; recipients build their own helpers."""
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -51,4 +52,6 @@ shutil.copy2(root.parent / "LICENSE", dest / "LICENSE")
 for name in ("SETUP_PROMPT.md", "UPDATE_PROMPT.md", "KNOWN_ISSUES.md", "ARCHITECTURE.md"):
     shutil.copy2(root.parent / "docs" / name, release / name)
 archive = shutil.make_archive(str(release), "zip", release.parent, release.name)
+digest = hashlib.sha256(Path(archive).read_bytes()).hexdigest()
+(release.parent / "SHA256SUMS").write_text(f"{digest}  {Path(archive).name}\n")
 print(archive)

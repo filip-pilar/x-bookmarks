@@ -19,6 +19,24 @@ class PlanError(RuntimeError):
         super().__init__(code)
 
 
+def inference_error(code, account, headers=None, http_status=None):
+    code = str(code or 'chatgpt_incomplete_response')
+    if http_status == 429 or any(part in code for part in ('rate_limit', 'usage_limit', 'usage_unavailable', '429', 'quota')):
+        import controls
+        from email.utils import parsedate_to_datetime
+        retry = (headers or {}).get('Retry-After', '')
+        try:
+            until = time.time() + float(retry)
+        except (ValueError, TypeError):
+            try:
+                until = parsedate_to_datetime(retry).timestamp()
+            except (ValueError, TypeError, OverflowError):
+                until = time.time() + 3600
+        controls.cool_down(account, until, code)
+        raise controls.CoolingDown(max(time.time()+5, until))
+    raise PlanError(code, True)
+
+
 def load(name, default=None):
     path = DIRECTORY / (name + ".json")
     return json.loads(path.read_text()) if path.exists() else default
@@ -239,7 +257,10 @@ def describe(images, context="", model=None):
         content.append({"type": "input_image", "image_url": "data:image/jpeg;base64," + base64.b64encode(data.getvalue()).decode()})
     body = {"model": selected, "input": [{"role": "user", "content": content}], "store": False, "stream": True}
     account = load('accounts', {}).get('active')
+    import controls
+    controls.check_cooldown(account)
     credential = access(account)
+    controls.claim('description')
     req = Request(API + "/responses", data=json.dumps(body).encode(), headers={
         "Authorization": "Bearer " + credential, "Content-Type": "application/json"})
     try:
@@ -252,7 +273,7 @@ def describe(images, context="", model=None):
             code = error.get("code") if isinstance(error, dict) else error
         except ValueError:
             code = None
-        raise PlanError("chatgpt_sign_in_required" if e.code == 401 else code or f"chatgpt_http_{e.code}", e.code >= 500 or e.code == 429) from None
+        inference_error("chatgpt_sign_in_required" if e.code == 401 else code or f"chatgpt_http_{e.code}", account, e.headers, e.code)
     with response:
         total = 0
         parts = {}
@@ -278,5 +299,5 @@ def describe(images, context="", model=None):
                         "frame_times": [t for _, t in images if t is not None], "response_id": result.get("id")}
             if event.get("type") in ("error", "response.failed", "response.incomplete"):
                 error = event.get("error") or event.get("response", {}).get("error") or {}
-                raise PlanError(error.get("code", "chatgpt_incomplete_response"), True)
+                inference_error(error.get("code", "chatgpt_incomplete_response"), account)
     raise PlanError("chatgpt_interrupted_response", True)

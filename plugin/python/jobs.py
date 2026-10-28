@@ -72,16 +72,23 @@ def sync_folders():
     }
 
 
-def sync(mode="new"):
+def sync(mode="new", process=False, limits=None):
+    __import__('controls').validate_limits(limits)
     if mode not in ("new", "full", "sample"):
         raise ValueError("Sync mode must be new, full or sample.")
     if not config().get("account"):
         raise RuntimeError("Connect X first.")
+    if process:
+        require_runtime()
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
         if mode != "sample" and not setting("full_inventory_at"):
             mode = "full"
         existing = resume_sync(c, mode)
+        if existing:
+            saved = json.loads(c.execute('SELECT payload FROM jobs WHERE id=?', (existing,)).fetchone()[0])
+            if bool(saved.get('process', False)) != bool(process):
+                raise ValueError('An unfinished import uses different processing settings. Resume it from Runs.')
         folders = setting("folder_inventory", {}) or {}
         check_folders = mode != "sample" and (
             mode == "full"
@@ -98,11 +105,12 @@ def sync(mode="new"):
                 "cursors": [],
                 "page_size": 10 if mode in ("new", "sample") else 100,
                 "check_folders": check_folders,
+                "process": bool(process),
             },
         )
-    __import__("pipeline").authorize(job)
+    __import__("pipeline").authorize(job, limits)
     WAKE.set()
-    return {"job_id": job, "mode": mode, "started": True, "resumed": bool(existing)}
+    return {"job_id": job, "mode": mode, "process": bool(process), "started": True, "resumed": bool(existing)}
 
 
 def checkpoint(c, job, payload):
@@ -162,6 +170,10 @@ def sync_step(job):
     if cursor:
         args["pagination_token"] = cursor
     if phase == "bookmarks":
+        import controls
+        remaining = controls.remaining_items(run, p.get('returned', 0))
+        if remaining == 0:
+            controls.stop(run, 'items')
         page, data, nxt = scan_page(
             run,
             f"/users/{owner}/bookmarks",
@@ -178,14 +190,23 @@ def sync_step(job):
                 ).fetchone()
                 for r in data
             )
+            offset = p.get('page_offset', 0)
+            data = data[offset:]
+            left_on_page = remaining is not None and len(data) > remaining
+            if remaining is not None:
+                data = data[:remaining]
             if p.get("mode") == "sample":
                 data = data[:10]
-            upsert_page(c, {**page, "data": data}, run)
-            advance(p, nxt)
+            upsert_page(c, {**page, "data": data}, run, process=p.get('process', False))
+            if left_on_page:
+                p['page_offset'] = offset + len(data)
+            else:
+                p.pop('page_offset', None)
+                advance(p, nxt)
             p.update(
-                pages=p.get("pages", 0) + 1, returned=p.get("returned", 0) + len(data)
+                pages=p.get("pages", 0) + (0 if offset else 1), returned=p.get("returned", 0) + len(data)
             )
-            if p.get("mode") == "sample" or not nxt or (p.get("mode") == "new" and known):
+            if p.get("mode") == "sample" or (not left_on_page and (not nxt or (p.get("mode") == "new" and known))):
                 p.update(
                     phase="folders" if p.get("check_folders", True) else "finish",
                     cursor=None,
@@ -271,6 +292,12 @@ def sync_step(job):
             if r[0] not in skipped
         ][:100]
     if missing:
+        import controls
+        remaining = controls.remaining_items(run, p.get('returned', 0))
+        if remaining == 0:
+            controls.stop(run, 'items')
+        if remaining is not None:
+            missing = missing[:remaining]
         page, data, _ = scan_page(
             run, "/tweets", {**FIELDS, "ids": ",".join(missing)}, lookup_ids=missing
         )
@@ -278,7 +305,8 @@ def sync_step(job):
         returned = {r["id"] for r in data}
         p["unresolved_ids"] = skipped + [i for i in missing if i not in returned]
         with db() as c:
-            upsert_page(c, {**page, "data": data}, run)
+            upsert_page(c, {**page, "data": data}, run, process=p.get('process', False))
+            p['returned'] = p.get('returned', 0) + len(data)
             p["phase"] = "hydrate"
             checkpoint(c, run, p)
         return
@@ -383,7 +411,8 @@ def finish_sync(run, p):
         c.execute("DELETE FROM scan_folders WHERE run=?", (run,))
 
 
-def process_saved(mode="rebuild", item=None):
+def process_saved(mode="rebuild", item=None, limits=None):
+    __import__('controls').validate_limits(limits, processing=True)
     require_runtime()
     if mode not in ("rebuild", "repair", "refresh"):
         raise ValueError("Unknown processing mode.")
@@ -398,9 +427,12 @@ def process_saved(mode="rebuild", item=None):
             raise ValueError("Bookmark is not in this library.")
         for row in rows:
             enqueue(c, "process", row[0], {"mode": mode, "retry": mode == "repair"}, run=run)
-    __import__("pipeline").authorize(run)
+    with db() as c:
+        queued = c.execute("SELECT count(*) FROM jobs WHERE run=? AND state='queued'", (run,)).fetchone()[0]
+    if queued:
+        __import__("pipeline").authorize(run, limits)
     WAKE.set()
-    return {"queued": len(rows), "mode": mode, "run": run, "network_allowed": mode != "rebuild"}
+    return {"queued": queued, "mode": mode, "run": run if queued else None, "network_allowed": mode != "rebuild"}
 
 
 def control(action, run=None, item=None):
@@ -451,17 +483,19 @@ def loop(kind):
             continue
         try:
             if job["kind"] == "sync":
-                sync_step(job)
+                with __import__('controls').scope(job['run']):
+                    sync_step(job)
             else:
                 from pipeline import prepare as process
 
                 payload = json.loads(job["payload"])
-                process(
-                    job["item"],
-                    retry=bool(payload.get("retry")),
-                    mode=payload.get("mode", "repair"),
-                    generation=job["run"],
-                )
+                with __import__('controls').scope(job['run']):
+                    process(
+                        job["item"],
+                        retry=bool(payload.get("retry")),
+                        mode=payload.get("mode", "repair"),
+                        generation=job["run"],
+                    )
                 with db() as c:
                     c.execute("BEGIN IMMEDIATE")
                     c.execute(
@@ -474,10 +508,14 @@ def loop(kind):
                         c.execute("UPDATE items SET state='pending' WHERE id=?", (job["item"],))
         except Exception as e:
             from sources import DiskSpaceError
+            if isinstance(e, (__import__('controls').BudgetReached, InterruptedError)):
+                with db() as c:
+                    c.execute("UPDATE jobs SET state='queued',error=?,next_at=0 WHERE id=?", (str(e), job['id']))
+                continue
 
             if isinstance(e, DiskSpaceError):
                 with db() as c:
-                    c.execute("UPDATE jobs SET state='waiting',next_at=?,error='temporary_storage_full' WHERE id=?", (time.time() + 300, job["id"]))
+                    c.execute("UPDATE jobs SET state='waiting',next_at=?,error=? WHERE id=?", (time.time() + 300, 'disk_space_low' if str(e).startswith('Not enough free space') else 'temporary_storage_full', job["id"]))
                 continue
             attempts = job["attempts"] + 1
             when = (

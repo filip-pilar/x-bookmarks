@@ -6,8 +6,7 @@ from sources import policy, checksum, DiskSpaceError, context_request
 
 WAKE = threading.Event()
 CACHE = HOME / "cache/media-v1"
-CACHE_LIMIT = 2 * 1024**3
-ASSET_LIMIT = 192 * 1024**2
+ASSET_LIMIT = 192 * 1024**2  # Still images only; video admission uses its working-space estimate.
 
 
 def migrate(c):
@@ -19,6 +18,7 @@ def migrate(c):
     CREATE INDEX IF NOT EXISTS stages_work ON stages(state,next_at,kind);
     CREATE INDEX IF NOT EXISTS stages_item ON stages(item);
     CREATE INDEX IF NOT EXISTS stages_run ON stages(run);
+    CREATE INDEX IF NOT EXISTS stages_source_work ON stages(source,kind,state);
     CREATE TABLE IF NOT EXISTS assets(id TEXT PRIMARY KEY,descriptor TEXT,sha256 TEXT,state TEXT,bytes INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS observations(source TEXT,at REAL,metrics TEXT,PRIMARY KEY(source,at));
     CREATE TABLE IF NOT EXISTS captured_sources(id TEXT,revision TEXT,payload TEXT,at REAL,PRIMARY KEY(id,revision));
@@ -35,10 +35,19 @@ def migrate(c):
         c.execute("INSERT OR REPLACE INTO settings VALUES ('paused','true')")
     c.execute("UPDATE stages SET state='queued' WHERE state='running'")
     c.execute("CREATE INDEX IF NOT EXISTS jobs_run ON jobs(run)")
+    __import__('controls').migrate(c)
+    # Startup owns the service lock. Recompute reservations from retained bytes when work resumes.
+    c.execute('DELETE FROM media_reservations')
+    # Preserve committed captions; pending video descriptions are no longer required.
+    c.execute("UPDATE stages SET state='cancelled',error=NULL WHERE kind='video_caption' AND state NOT IN ('complete','cancelled')")
 
 
-def authorize(run):
+def authorize(run, limits=None):
     with db() as c:
+        __import__('controls').create(c, run, limits)
+        budget = c.execute('SELECT reason FROM run_limits WHERE run=?', (run,)).fetchone()
+        if budget and budget[0]:
+            raise ValueError('Increase the run limit before resuming.')
         if setting("paused", True):
             c.execute("UPDATE runs SET state='paused' WHERE state='running'")
         c.execute("INSERT INTO runs VALUES (?,'running',?) ON CONFLICT(id) DO UPDATE SET state='running'", (run, time.time()))
@@ -99,7 +108,7 @@ def publish_post(c, item, post, row_title=None):
 
 def queue(c, item, source, kind, revision, payload, run):
     key = fingerprint([item, source, kind, revision])
-    c.execute("INSERT INTO stages(id,item,source,kind,revision,run,state,payload,updated) VALUES (?,?,?,?,?,?,'queued',?,?) ON CONFLICT(id) DO UPDATE SET run=excluded.run",
+    c.execute("INSERT INTO stages(id,item,source,kind,revision,run,state,payload,updated) VALUES (?,?,?,?,?,?,'queued',?,?) ON CONFLICT(id) DO NOTHING",
               (key, item, source, kind, revision, run, json.dumps(payload), time.time()))
     return key
 
@@ -159,7 +168,7 @@ def prepare(item, retry=False, mode="repair", generation=""):
         for ref in raw["post"].get("referenced_tweets", []):
             if ref.get("type") in ("replied_to", "quoted"):
                 queue(c, item, ref["id"], "context", fingerprint([ref["id"], mode == "refresh" and run]), {"mode": mode}, run)
-        c.execute("UPDATE items SET processed_hash=?,processor='5',state='processing' WHERE id=?", (prepared_hash, item))
+        c.execute("UPDATE items SET processed_hash=?,processor='6',state='processing' WHERE id=?", (prepared_hash, item))
     WAKE.set()
     return {"queued_stages": True}
 
@@ -183,17 +192,7 @@ def cache_size():
 
 def finish_runs():
     with db() as c:
-        c.execute("UPDATE runs SET state='complete' WHERE state='running' AND NOT EXISTS(SELECT 1 FROM jobs j WHERE j.run=runs.id AND j.state NOT IN ('complete','cancelled')) AND NOT EXISTS(SELECT 1 FROM stages s WHERE s.run=runs.id AND s.state!='complete')")
-
-
-def reserve_cache(size):
-    limit = int(config().get("media_cache_bytes", CACHE_LIMIT))
-    if size + 8 * 1024**2 > limit:
-        raise CapacityError("Required scratch exceeds the configured media budget.")
-    if cache_size() + size + 8 * 1024**2 > limit:
-        raise DiskSpaceError("Temporary media budget reached; finish pending descriptions or clear selected failed media.")
-    from sources import reserve_space
-    reserve_space(size)
+        c.execute("UPDATE runs SET state='complete' WHERE state='running' AND NOT EXISTS(SELECT 1 FROM jobs j WHERE j.run=runs.id AND j.state NOT IN ('complete','cancelled')) AND NOT EXISTS(SELECT 1 FROM stages s WHERE s.run=runs.id AND s.state NOT IN ('complete','cancelled'))")
 
 
 def save_stage(stage, result):
@@ -217,12 +216,13 @@ def clean_asset(asset):
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
         rows = c.execute("SELECT state FROM stages WHERE source=? OR json_extract(payload,'$.asset')=?", (asset, asset)).fetchall()
-        if not rows or any(r[0] != "complete" for r in rows):
+        if not rows or any(r[0] not in ('complete', 'cancelled') for r in rows):
             return False
         directory = asset_path(asset)
         # This directory contains only v1-managed scratch; never old items/assets or sources/.
         shutil.rmtree(directory, ignore_errors=True)
         c.execute("UPDATE assets SET state='evicted',bytes=0 WHERE id=?", (asset,))
+        c.execute('DELETE FROM media_reservations WHERE asset=?', (asset,))
     return True
 
 
@@ -234,14 +234,14 @@ def reuse_completed_asset(stage):
         if not previous:
             return None
         rows = c.execute("SELECT * FROM stages WHERE item=? AND (source=? OR json_extract(payload,'$.asset')=?)", (previous[0], asset, asset)).fetchall()
-        if not rows or any(r["state"] != "complete" for r in rows):
+        if not rows or any(r["state"] not in ('complete', 'cancelled') for r in rows):
             return None
         evidence = c.execute("SELECT * FROM chunks WHERE item=? AND json_extract(metadata,'$.asset_id')=?", (previous[0], asset)).fetchall()
         for row in evidence:
             meta = json.loads(row["metadata"])
             put_chunk(c, stage["item"], meta["source_id"], meta["revision"], row["kind"], row["text"], meta, row["vector"], suffix=row["id"])
         for row in rows:
-            if row["kind"] == "download" or (row["kind"] == "text" and not json.loads(row["payload"]).get("asset")):
+            if row["kind"] in ('download', 'video_caption') or (row["kind"] == "text" and not json.loads(row["payload"]).get("asset")):
                 continue
             key = queue(c, stage["item"], row["source"], row["kind"], row["revision"], json.loads(row["payload"]), stage["run"])
             c.execute("UPDATE stages SET state='complete',result=?,error=NULL WHERE id=?", (row["result"], key))
@@ -253,7 +253,7 @@ def execute(stage):
     from PIL import Image
     from embedding import encode, FINGERPRINT
     from xapi import get, FIELDS
-    from content import probe, ocr, audio_file, transcribe
+    from content import probe, ocr
     item, source, kind, revision, run = (stage[k] for k in ("item", "source", "kind", "revision", "run"))
     p = json.loads(stage["payload"])
     if kind in ("context", "media_lookup"):
@@ -312,20 +312,19 @@ def execute(stage):
             if __import__("re").fullmatch(r"[0-9]+_[0-9]+", key):
                 old = HOME / "items" / item / "assets" / (key + (".image" if media["type"] == "photo" else ".mp4"))
                 if old.is_file():
-                    reserve_cache(old.stat().st_size)
+                    __import__('media_runtime').reserve(asset, old.stat().st_size + __import__('media_runtime').SCRATCH)
                     shutil.copyfile(old, path)
         if not path.exists():
             if p.get("mode") == "rebuild" or config().get("offline"):
                 raise RuntimeError("source_retrieval_required")
-            reserve_cache(ASSET_LIMIT)
             if media["type"] == "photo":
+                __import__('media_runtime').reserve(asset, ASSET_LIMIT + __import__('media_runtime').SCRATCH)
                 url = media["url"]
+                download(url, path, ASSET_LIMIT)
             else:
-                variants = sorted((v for v in media.get("variants", []) if v.get("content_type") == "video/mp4"), key=lambda v: v.get("bit_rate", 0))
-                if not variants:
-                    raise SourceUnavailable("media_variant_unavailable")
-                url = next((v["url"] for v in variants if v.get("bit_rate", 0) >= 800000), variants[-1]["url"])
-            download(url, path, ASSET_LIMIT)
+                path = __import__('media_runtime').download_video(media, asset, run, directory)
+        else:
+            __import__('media_runtime').reserve(asset, path.stat().st_size + __import__('media_runtime').SCRATCH)
         if media["type"] == "photo":
             try:
                 from raster import convert_svg
@@ -340,6 +339,7 @@ def execute(stage):
                 path.unlink(missing_ok=True)
                 with db() as c:
                     c.execute("UPDATE assets SET state='evicted',bytes=0 WHERE id=?", (asset,))
+                    c.execute('DELETE FROM media_reservations WHERE asset=?', (asset,))
                 return {"asset": asset, "coverage": ["Tracking-sized image omitted (2 pixels or smaller)."]}
         else:
             try:
@@ -363,15 +363,24 @@ def execute(stage):
                     queue(c, item, asset, task, sha, common, run)
             else:
                 duration = float(info.get("format", {}).get("duration", 0))
-                if duration <= 0 or duration > 4 * 3600:
+                if not math.isfinite(duration) or duration <= 0:
                     raise SourceUnavailable("video_duration_unsupported")
                 audio = any(s.get("codec_type") == "audio" for s in info.get("streams", []))
                 common.update(duration=duration, audio=audio)
+                from fractions import Fraction
+                video = next((s for s in info.get('streams', []) if s.get('codec_type') == 'video'), {})
+                try:
+                    fps = float(Fraction(video.get('avg_frame_rate', '0/1')))
+                    last_frame = (int(video['nb_frames']) - 1) / fps if video.get('nb_frames', '').isdigit() and fps else float(video.get('duration', duration)) - (1 / fps if fps else .1)
+                    common['last_frame'] = max(0, min(duration, last_frame))
+                except (ValueError, ZeroDivisionError):
+                    common['last_frame'] = max(0, duration - .1)
                 if audio:
-                    queue(c, item, asset, "transcript", sha, common, run)
-                for start in range(0, math.ceil(duration), 8):
-                    segment = {**common, "start": start, "end": min(start + 8, duration)}
-                    for task in ("video", "video_ocr", "video_caption"):
+                    for begin, end in __import__('media_runtime').speech_segments(duration):
+                        queue(c, item, asset + ':speech:' + str(begin), 'transcript', sha, {**common, 'start': begin, 'end': end}, run)
+                for start, end in __import__('media_runtime').segments(duration, 8):
+                    segment = {**common, "start": start, "end": end}
+                    for task in ("video", "video_ocr"):
                         queue(c, item, asset + ":" + str(start), task, sha, segment, run)
                     if audio:
                         queue(c, item, asset + ":" + str(start), "audio", sha, segment, run)
@@ -379,6 +388,7 @@ def execute(stage):
     path = directory / p["path"]
     if not path.is_file():
         raise RuntimeError("source_retrieval_required")
+    __import__('media_runtime').reserve(asset, __import__('media_runtime').size(directory) + __import__('media_runtime').SCRATCH)
     meta = {"owner_post": p["post"], "asset_id": asset, "url": p.get("source_url", "https://x.com/i/status/" + p["post"]), "sha256": p["sha256"]}
     text, vector, evidence_kind = "", None, kind
     if kind in ("image", "ocr", "caption"):
@@ -396,9 +406,13 @@ def execute(stage):
             text, evidence_kind = result["text"], "description"
             meta.update(generated=True, model=result["model"], captured_at=result["at"])
     elif kind == "transcript":
-        reserve_cache(int(p["duration"] * 160000) + 16 * 1024**2)
-        wav = audio_file(path, p["sha256"], p["duration"])
-        recognition, result = transcribe(wav, directory)
+        if 'start' not in p:
+            with db() as c:
+                for begin, end in __import__('media_runtime').speech_segments(p['duration']):
+                    queue(c, item, asset + ':speech:' + str(begin), 'transcript', revision, {**p, 'start': begin, 'end': end}, run)
+            return {'segmented': True}
+        recognition, result = __import__('media_runtime').transcribe_segment(path, p, run, directory)
+        meta.update(start_seconds=p['start'], end_seconds=p['end'])
         words = recognition.get("words", [])
         with db() as c:
             for offset in range(0, len(words), 65):
@@ -412,22 +426,21 @@ def execute(stage):
     else:
         import cv2
         start, end = p["start"], p["end"]
-        times = [min(start + n + .5, (start + end) / 2 if end - start < 1 else end - .1) for n in range(max(1, math.ceil(end - start)))]
+        times = list(dict.fromkeys(min(p.get('last_frame', max(0, p['duration']-.1)), start + n + .5, (start + end) / 2 if end - start < 1 else end - .1) for n in range(max(1, math.ceil(end - start)))))
         meta.update(start_seconds=start, end_seconds=end, frame_times=times)
         if kind == "audio":
             import soundfile as sf
-            from content import command
             wav = directory / f"audio-{start}.wav"
-            reserve_cache(512 * 1024)
-            command(["ffmpeg", "-v", "error", "-y", "-ss", str(start), "-i", path, "-t", str(end - start), "-ac", "1", "-ar", "16000", wav])
-            audio, rate = sf.read(wav, dtype="float32")
-            vector = encode(text="<|audio|>", audio=audio, sampling_rate=rate)[0].tobytes()
-            wav.unlink()
+            try:
+                __import__('media_runtime').run_command(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", str(start), "-i", path, "-t", str(end - start), "-ac", "1", "-ar", "16000", wav], run, directory, __import__('media_runtime').size(directory) + __import__('media_runtime').SCRATCH)
+                audio, rate = sf.read(wav, dtype="float32")
+                vector = encode(text="<|audio|>", audio=audio, sampling_rate=rate)[0].tobytes()
+            finally:
+                wav.unlink(missing_ok=True)
         else:
             frames, paths = [], []
             cap = cv2.VideoCapture(str(path))
             try:
-                reserve_cache(4 * 1024**2)
                 for t in times:
                     cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
                     ok, frame = cap.read()
@@ -444,15 +457,6 @@ def execute(stage):
                     vector = encode(text="<|video|>", videos=np.stack(frames), do_sample_frames=False)[0].tobytes()
                 elif kind == "video_ocr":
                     text, evidence_kind = "\n".join(dict.fromkeys(ocr(f) for f, _ in paths)), "ocr"
-                elif kind == "video_caption":
-                    import subscription
-                    with db() as c:
-                        transcript = c.execute("SELECT result FROM stages WHERE item=? AND source=? AND kind='transcript' AND state='complete'", (item, asset)).fetchone()
-                    words = json.loads(transcript[0]).get("words", []) if transcript else []
-                    spoken = " ".join(w["word"] for w in words if start <= w["startTime"] < end)
-                    result = subscription.describe(paths, "Video sampled once per second. Speech in this segment: " + spoken)
-                    text, evidence_kind = result["text"], "description"
-                    meta.update(generated=True, model=result["model"], captured_at=result["at"])
                 else:
                     raise ValueError("Unknown processing stage.")
             finally:
@@ -466,33 +470,35 @@ def execute(stage):
     return {"text": text, "asset": asset, "evidence_kind": evidence_kind, "metadata": meta}
 
 
-class CapacityError(RuntimeError):
-    pass
-
-
 class SourceUnavailable(RuntimeError):
     pass
 
 
-def work_once(lane="local"):
+def work_once(lane="local", worker=0):
+    import controls
     from pages import BrowserNeeded
     from subscription import PlanError
     from xapi import RetryLater, XError
-    if setting("paused", True):
+    if setting("paused", True) or worker >= (controls.preferences()['description_workers' if lane == 'description' else 'local_workers'] or 1):
         return False
+    if lane == 'description':
+        try:
+            controls.check_cooldown(__import__('subscription').load('accounts', {}).get('active'))
+        except controls.CoolingDown:
+            return False
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
-        condition = "s.kind IN ('caption','video_caption')" if lane == "description" else "s.kind NOT IN ('caption','video_caption')"
+        condition = "s.kind='caption'" if lane == "description" else "s.kind NOT IN ('caption','video_caption')"
+        condition += " AND NOT EXISTS(SELECT 1 FROM stages busy WHERE busy.state='running' AND busy.source=s.source AND busy.kind=s.kind)"
         condition += " AND (json_extract(s.payload,'$.asset') IS NULL OR NOT EXISTS(SELECT 1 FROM stages d WHERE d.source=json_extract(s.payload,'$.asset') AND d.kind='download' AND d.run=s.run AND d.state!='complete'))"
-        if lane == "description":
-            condition += " AND NOT EXISTS(SELECT 1 FROM stages t WHERE t.kind='transcript' AND t.item=s.item AND t.source=json_extract(s.payload,'$.asset') AND t.state IN ('queued','running','waiting'))"
-        row = c.execute("SELECT s.* FROM stages s JOIN runs r ON r.id=s.run WHERE r.state='running' AND s.state IN ('queued','waiting') AND s.next_at<=? AND " + condition + " ORDER BY CASE s.kind WHEN 'text' THEN 0 WHEN 'context' THEN 1 WHEN 'transcript' THEN 2 WHEN 'download' THEN 4 ELSE 3 END,s.updated LIMIT 1", (time.time(),)).fetchone()
+        row = c.execute("SELECT s.* FROM stages s JOIN runs r ON r.id=s.run WHERE r.state='running' AND s.state IN ('queued','waiting') AND (s.next_at<=? OR (s.kind='caption' AND s.error='chatgpt_cooldown')) AND " + condition + " ORDER BY CASE s.kind WHEN 'text' THEN 0 WHEN 'context' THEN 1 WHEN 'transcript' THEN 2 WHEN 'download' THEN 4 ELSE 3 END,s.updated LIMIT 1", (time.time(),)).fetchone()
         if not row:
             return False
         stage = dict(row)
         c.execute("UPDATE stages SET state='running',updated=? WHERE id=?", (time.time(), stage["id"]))
     try:
-        result = execute(stage)
+        with controls.scope(stage['run']):
+            result = execute(stage)
         save_stage(stage, result)
         asset = json.loads(stage["payload"]).get("asset") or (stage["source"] if stage["kind"] == "download" else None)
         if asset:
@@ -504,10 +510,12 @@ def work_once(lane="local"):
         attempts = stage["attempts"] + 1
         state, delay = ("waiting" if attempts < 4 else "failed"), min(900, 15 * 2**attempts)
         code = type(e).__name__
-        if isinstance(e, InterruptedError):
+        if isinstance(e, controls.BudgetReached):
+            state, code, delay, attempts = 'queued', str(e), 0, stage['attempts']
+        elif isinstance(e, controls.CoolingDown):
+            state, code, delay, attempts = 'waiting', 'chatgpt_cooldown', max(5, e.until-time.time()), stage['attempts']
+        elif isinstance(e, InterruptedError):
             state, code, delay, attempts = "queued", "processing_paused", 0, stage["attempts"]
-        elif isinstance(e, CapacityError):
-            state, code = "blocked", "temporary_budget_too_small"
         elif isinstance(e, BrowserNeeded):
             state, code = ("browser" if stage["kind"] == "page" else "unavailable"), e.reason
         elif isinstance(e, SourceUnavailable):
@@ -519,9 +527,10 @@ def work_once(lane="local"):
             elif "rate_limit" in code or "usage_limit" in code or "429" in code or "quota" in code:
                 state, delay = "waiting", 3600
         elif isinstance(e, DiskSpaceError):
-            state, code, delay = "waiting", "temporary_storage_full", 300
+            code = str(e) if str(e).startswith('temporary_budget_required:') else 'disk_space_low' if str(e).startswith('Not enough free space') else 'temporary_storage_full'
+            state, delay, attempts = "waiting", 30, stage['attempts']
         elif isinstance(e, RetryLater):
-            delay = max(5, e.when - time.time())
+            state, delay, attempts = 'waiting', max(5, e.when - time.time()), stage['attempts']
             code = "x_retry_later"
         elif isinstance(e, XError):
             code = f"x_http_{e.status}"
@@ -534,14 +543,20 @@ def work_once(lane="local"):
             code += ": " + safe_error(e)
         with db() as c:
             c.execute("UPDATE stages SET state=?,attempts=?,next_at=?,error=?,updated=? WHERE id=?", (state, attempts, time.time() + delay, code[:1000], time.time(), stage["id"]))
+            asset = json.loads(stage['payload']).get('asset') or (stage['source'] if stage['kind'] == 'download' else None)
+            if asset and (state in ('failed', 'blocked', 'unavailable') or isinstance(e, (InterruptedError, controls.BudgetReached))):
+                # Retain original bytes, but release unused promised space when no worker uses it.
+                busy = c.execute("SELECT 1 FROM stages WHERE state='running' AND (source=? OR json_extract(payload,'$.asset')=?)", (asset, asset)).fetchone()
+                if not busy:
+                    c.execute('DELETE FROM media_reservations WHERE asset=?', (asset,))
         refresh_item(stage["item"])
     return True
 
 
-def loop(lane):
+def loop(lane, worker=0):
     while True:
-        if not work_once(lane):
-            if lane == "local" and not setting("paused", True):
+        if not work_once(lane, worker):
+            if lane == "local" and worker == 0 and not setting("paused", True):
                 with db() as c:
                     candidates = [r[0] for r in c.execute("SELECT id FROM assets WHERE state='cached' LIMIT 100")]
                 for asset in candidates:
@@ -598,6 +613,7 @@ def clear_cache(item=None):
                 removed += size
                 shutil.rmtree(path)
             c.execute("UPDATE assets SET state='evicted',bytes=0 WHERE id=?", (asset,))
+            c.execute('DELETE FROM media_reservations WHERE asset=?', (asset,))
             if any(r["state"] != "complete" for r in related):
                 c.execute("UPDATE stages SET state='blocked',error='source_retrieval_required' WHERE source=? AND kind='download'", (asset,))
     return {"removed_bytes": removed, "existing_originals_untouched": True}
@@ -620,5 +636,6 @@ def overview():
           FROM (SELECT s.item,s.kind,s.state FROM stages s JOIN items i ON i.id=s.item WHERE i.active=1
           UNION ALL SELECT j.item,j.kind,j.state FROM jobs j JOIN items i ON i.id=j.item WHERE i.active=1)""").fetchone())
         progress['syncs'] = c.execute("SELECT count(*) FROM jobs WHERE kind='sync' AND state NOT IN ('complete','cancelled')").fetchone()[0]
+        progress['sync_running'] = c.execute("SELECT count(*) FROM jobs j JOIN runs r ON r.id=j.run WHERE j.kind='sync' AND j.state IN ('queued','running','waiting') AND r.state='running'").fetchone()[0]
         progress['sync_attention'] = c.execute("SELECT count(*) FROM jobs WHERE kind='sync' AND state='failed'").fetchone()[0]
-    return {**processing_counts, "stage_counts": counts, "stage_issues": issues, "runs": runs, "progress": progress, "chatgpt": subscription.status(), "temporary_bytes": cache_size(), "temporary_limit": int(config().get("media_cache_bytes", CACHE_LIMIT))}
+    return {**processing_counts, **__import__('controls').snapshot(), "stage_counts": counts, "stage_issues": issues, "runs": runs, "progress": progress, "chatgpt": subscription.status(), "temporary_bytes": cache_size(), "temporary_limit": __import__('media_runtime').limit()}
