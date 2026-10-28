@@ -7,7 +7,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.7.14" };
+const appInfo = { name: "Bookmark Library", version: "0.7.15" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
@@ -658,10 +658,9 @@ function openReview(view: "issues" | "runs") {
 function inventoryLabel() {
   const latest = state?.last_inventory;
   if (latest?.partial_pages || latest?.unavailable_records)
-    return "Last sync incomplete";
-  if (state?.full_inventory_at) return "API inventory checked";
-  if (latest?.mode === "sample") return "Sample import";
-  return state?.total ? "Full check incomplete" : "Not imported";
+    return "Last import incomplete";
+  if (state?.full_inventory_at) return "Available bookmarks imported";
+  return state?.total ? "Not fully imported" : "Not imported yet";
 }
 function renderCount() {
   if (loading) return;
@@ -669,13 +668,9 @@ function renderCount() {
     $("count").textContent = "Unavailable";
     return;
   }
-  const coverage =
-    !state?.full_inventory_at && state?.last_inventory?.mode === "sample"
-      ? " · Sample"
-      : "";
   $("count").textContent = searching
     ? `${number(rows.length)} top ${rows.length === 1 ? "match" : "matches"}`
-    : `${rows.length === scopedTotal ? number(rows.length) : `${number(rows.length)} of ${number(scopedTotal)}`} saved${coverage}`;
+    : `${rows.length === scopedTotal ? number(rows.length) : `${number(rows.length)} of ${number(scopedTotal)}`} saved`;
 }
 function renderCoverage() {
   const folders = state?.folder_inventory;
@@ -689,7 +684,7 @@ function renderCoverage() {
         ? "Partially synced"
         : "Not synced";
   $("sync-coverage").innerHTML =
-    `<div><dt>Saved locally</dt><dd>${number(state?.total)}</dd></div><div><dt>Bookmarks</dt><dd>${esc(inventoryLabel())}</dd></div><div><dt>Folders</dt><dd>${esc(label)}</dd></div>${state?.full_inventory_at ? `<div><dt>Last full check</dt><dd>${esc(date(state.full_inventory_at))}</dd></div>` : ""}`;
+    `<div><dt>Saved locally</dt><dd>${number(state?.total)}</dd></div><div><dt>Import status</dt><dd>${esc(inventoryLabel())}</dd></div><div><dt>Folders</dt><dd>${esc(label)}</dd></div>${state?.full_inventory_at ? `<div><dt>Last checked</dt><dd>${esc(date(state.full_inventory_at))}</dd></div>` : ""}`;
   $("folder-status").textContent =
     choice("folder").options.length > 1
       ? folders?.complete
@@ -2006,11 +2001,60 @@ action("confirm-clear", async () => {
   await refreshDetail(id);
   await refresh();
 });
-for (const b of document.querySelectorAll<HTMLButtonElement>("[data-close]"))
-  b.onclick = () => {
-    for (const c of choices.values()) c.close();
-    dialog(b.dataset.close!).close();
+function dismissDialog(d: HTMLDialogElement) {
+  for (const c of choices.values()) c.close();
+  d.close();
+}
+for (const d of document.querySelectorAll<HTMLDialogElement>("dialog")) {
+  let backdropStart: { x: number; y: number } | undefined;
+  const outside = (event: MouseEvent) => {
+    const rect = d.getBoundingClientRect();
+    return (
+      event.clientX < rect.left ||
+      event.clientX > rect.right ||
+      event.clientY < rect.top ||
+      event.clientY > rect.bottom
+    );
   };
+  d.addEventListener(
+    "pointerdown",
+    (event) => {
+      // A dropdown consumes its own outside click; drags from content are not dismissal.
+      backdropStart =
+        event.isPrimary &&
+        event.button === 0 &&
+        event.target === d &&
+        outside(event) &&
+        !d.querySelector('[role="listbox"]')
+          ? { x: event.clientX, y: event.clientY }
+          : undefined;
+    },
+    true,
+  );
+  d.addEventListener("pointercancel", () => {
+    backdropStart = undefined;
+  });
+  d.addEventListener("click", (event) => {
+    const start = backdropStart;
+    backdropStart = undefined;
+    if (
+      !start ||
+      event.detail === 0 ||
+      event.target !== d ||
+      !outside(event) ||
+      Math.hypot(event.clientX - start.x, event.clientY - start.y) > 8
+    )
+      return;
+    event.preventDefault();
+    dismissDialog(d);
+  });
+  d.addEventListener("close", () => {
+    backdropStart = undefined;
+    for (const c of choices.values()) c.close();
+  });
+}
+for (const b of document.querySelectorAll<HTMLButtonElement>("[data-close]"))
+  b.onclick = () => dismissDialog(dialog(b.dataset.close!));
 const refreshButton = document.createElement("button");
 refreshButton.id = "refresh-content";
 refreshButton.className = "small-link";

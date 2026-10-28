@@ -1,6 +1,14 @@
 # Verification and remaining limitations
 
-Version 0.7.14 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.15 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.15 import wording and dialog dismissal
+
+The library count shows saved bookmarks without an internal sample label. Import status says Not fully imported until an inventory check finishes; completed checks say Available bookmarks imported, alongside the limitation that X may not return all older bookmarks. Missing records remain Last import incomplete, and folder coverage remains separate.
+
+All seven dialogs support backdrop dismissal. Only a primary click that begins and ends on the backdrop closes the dialog; content clicks and selection drags do not. An open dropdown consumes the first outside click. Escape and close buttons remain available, draft limits persist, and native dialog focus returns to the opener. Cancelling Disconnect returns to Settings without disconnecting; dismissing a nested request leaves its parent open.
+
+The actual built panel in an isolated host verified all seven dialogs, dropdown-first dismissal, text-selection drag protection, Escape, retained import limits, and focus return. A 390×560 dark Import dialog stayed within the viewport without horizontal overflow and dismissed from its backdrop. Processing, recovery and media-clear availability used controlled fixtures; no import, processing, disconnect or deletion was submitted. An already-open installed panel needs reopening.
 
 ## Verified for 0.7.14 prerequisites and fallbacks
 

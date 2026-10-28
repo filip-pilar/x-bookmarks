@@ -1,6 +1,6 @@
 {
   "name": "bookmark-library",
-  "version": "0.7.14",
+  "version": "0.7.15",
   "description": "Import X bookmarks and recall their text, images, videos and speech with local search.",
   "author": {
     "name": "Phil"
