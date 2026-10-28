@@ -11,7 +11,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home =
   process.env.BOOKMARK_LIBRARY_HOME ||
   join(homedir(), "Library/Application Support/BookmarkLibrary");
-const ui = "ui://bookmark-library/control-0.7.9.html";
+const ui = "ui://bookmark-library/control-0.7.10.html";
 const iconSource = await readFile(join(root, "assets/x-bookmark.svg"), "utf8");
 const icons = (["light", "dark"] as const).map((theme) => ({
   src:
@@ -52,7 +52,7 @@ async function ensure() {
     current = await request("status");
   } catch {}
   if (current) {
-    if (current.backend_version !== "0.7.9")
+    if (current.backend_version !== "0.7.10")
       throw new Error(
         "Bookmark Library backend needs a restart to load the installed update. Pause processing before restarting its local service.",
       );
@@ -92,7 +92,7 @@ async function ensure() {
           status = await request("status");
         } catch {}
         if (status) {
-          if (status.backend_version !== "0.7.9")
+          if (status.backend_version !== "0.7.10")
             throw new Error(
               "A different Bookmark Library backend is already running. Pause processing and restart its local service to load the update.",
             );
@@ -128,7 +128,7 @@ async function call(action: string, args: Record<string, unknown> = {}) {
   }
 }
 serveStdio(() => {
-  const server = new McpServer({ name: "bookmark-library", version: "0.7.9" });
+  const server = new McpServer({ name: "bookmark-library", version: "0.7.10" });
   const runLimits = z
     .object({
       x_requests: z.number().int().min(0).max(100000).optional(),
@@ -401,9 +401,15 @@ serveStdio(() => {
     "process_saved",
     {
       description:
-        "Process already imported items without scanning bookmarks. rebuild uses retained sources without network fetching; repair fetches missing sources; refresh deliberately refetches source context and may use X credits. Require an explicit request for repair or refresh. Does not run a bookmark import.",
+        "Process already imported items without scanning bookmarks. Use scope=pending for newly imported or changed bookmarks without existing work; status.unprocessed gives this count. scope=all also revisits completed bookmarks. rebuild uses retained sources without network fetching; repair fetches missing sources; refresh deliberately refetches source context and may use X credits. Require an explicit request for repair or refresh. Does not run a bookmark import.",
       inputSchema: z.object({
         mode: z.enum(["rebuild", "repair", "refresh"]),
+        scope: z
+          .enum(["pending", "all"])
+          .optional()
+          .describe(
+            "Defaults to all for explicit rebuild/repair/refresh workflows. Use pending for normal processing after import; existing runs and failures are handled separately.",
+          ),
         limits: runLimits.unwrap().omit({ items: true }).optional(),
         item: z
           .string()

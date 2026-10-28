@@ -110,11 +110,12 @@
         overflow: auto;
         overscroll-behavior: contain;
         scrollbar-gutter: stable;
-        scroll-padding-block: 16px;
-        padding: 4px 0 24px;
+        scroll-padding-block: 16px 184px;
+        /* Keep room for the feedback dock even when it clears at the list end. */
+        padding: 4px 0 184px;
       }
       #reader-scroll {
-        padding: 24px 16px;
+        padding: 24px 16px 184px;
       }
       input[type="search"]::-webkit-search-cancel-button {
         display: none;
@@ -897,17 +898,19 @@
         margin: 6px 0 12px;
       }
       dialog {
+        --dialog-top: max(16px, min(6svh, 56px), var(--host-top, 0px));
+        --dialog-padding: 24px;
         scroll-padding-block: 64px 24px;
         width: min(580px, calc(100vw - 28px));
         max-height: calc(
-          100svh - max(100px, var(--host-bottom, 0px)) -
-            max(24px, var(--host-top, 0px))
+          100svh - var(--dialog-top) - max(100px, var(--host-bottom, 0px))
         );
-        margin-block: auto;
-        bottom: max(60px, var(--host-bottom, 0px));
+        margin: 0 auto;
+        top: var(--dialog-top);
+        bottom: auto;
         overflow: auto;
         overscroll-behavior: contain;
-        padding: 24px;
+        padding: var(--dialog-padding);
         border: 1px solid var(--line);
         border-radius: 14px;
         box-shadow: 0 16px 60px #00000026;
@@ -982,15 +985,6 @@
       }
       #count {
         font-variant-numeric: tabular-nums;
-      }
-      main:has(#notice:not([hidden])) .scrollport,
-      main:has(#error:not([hidden])) .scrollport,
-      main:has(#refresh-content:not([hidden])) .scrollport,
-      main:has(#progress:not([hidden])) .scrollport {
-        padding-bottom: 184px;
-      }
-      main:has(#connection-status:not([hidden])) .scrollport {
-        padding-bottom: 184px;
       }
       #feedback-dock {
         position: fixed;
@@ -1251,11 +1245,11 @@
       }
       .dialog-header {
         position: sticky;
-        top: -24px;
+        top: calc(-1 * var(--dialog-padding));
         z-index: 2;
         background: var(--surface);
-        padding-block: 12px;
-        margin-top: -12px;
+        padding-block: var(--dialog-padding) 12px;
+        margin-top: calc(-1 * var(--dialog-padding));
       }
       button:not(.bookmark)[aria-busy="true"] {
         position: relative;
@@ -1355,8 +1349,7 @@
           grid-template-columns: 1fr;
         }
         dialog {
-          scroll-padding-block: 64px 24px;
-          padding: 20px;
+          --dialog-padding: 20px;
         }
         .row-date {
           display: none;
@@ -1932,7 +1925,7 @@
           <button
             class="quiet icon-only icon-button"
             data-close="sync-dialog"
-            aria-label="Close sync"
+            aria-label="Close import"
           >
             <svg
               class="icon"
@@ -1953,10 +1946,7 @@
           Coverage reflects what X’s API returned, not every historical
           bookmark.
         </p>
-        <p class="muted">
-          Save posts, metrics and folders using X credits. Process media
-          separately.
-        </p>
+        <p class="muted">Uses X credits. Media processing starts separately.</p>
         <div class="processing-grid">
           <div>
             <label id="import-items-label" for="import-items-trigger"
@@ -1966,17 +1956,18 @@
           </div>
           <div>
             <label id="import-x-limit-label" for="import-x-limit-trigger"
-              >X request limit</label
+              >X API calls</label
             >
             <div id="import-x-limit" class="choice"></div>
           </div>
         </div>
         <p class="muted">
-          Stops at the first limit. Request limits are not a spending cap.
+          Pauses at either limit. One API call can return many posts; this is
+          not a spending cap.
         </p>
         <div class="actions">
-          <button id="sync-new" class="primary">Sync new bookmarks</button
-          ><button id="sync-full">Check all bookmarks</button>
+          <button id="sync-new" class="primary">Import bookmarks</button
+          ><button id="sync-full">Recheck from newest</button>
         </div>
       </dialog>
       <dialog id="processing-dialog" aria-labelledby="processing-heading">
@@ -2003,13 +1994,13 @@
         <div class="feedback" role="status" data-notice hidden></div>
         <p id="processing-scope"></p>
         <p class="muted">
-          Capture direct context, linked pages and media. Completed evidence is
-          reused; other paused runs stay paused.
+          Capture context, linked pages and media for these bookmarks. Paused
+          runs stay paused.
         </p>
         <div class="processing-grid">
           <div>
             <label id="process-x-limit-label" for="process-x-limit-trigger"
-              >X request limit</label
+              >X API calls</label
             >
             <div id="process-x-limit" class="choice"></div>
           </div>
@@ -2017,14 +2008,14 @@
             <label
               id="process-description-limit-label"
               for="process-description-limit-trigger"
-              >Image description limit</label
+              >Image descriptions</label
             >
             <div id="process-description-limit" class="choice"></div>
           </div>
         </div>
         <p class="muted">
-          X reads use credits. Image descriptions share your ChatGPT allowance.
-          Videos are processed locally.
+          Pauses at either limit. X calls use credits; image descriptions use
+          your ChatGPT plan. Videos are processed locally.
         </p>
         <div class="actions">
           <button id="start-processing" class="primary">

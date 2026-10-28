@@ -7,7 +7,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.7.9" };
+const appInfo = { name: "Bookmark Library", version: "0.7.10" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
@@ -354,21 +354,28 @@ function showDialog(id: string) {
   ))
     e.hidden = true;
   for (const c of choices.values()) c.close();
-  d.showModal();
-  if (id === "settings-dialog") void loadModels();
   if (id === "sync-dialog") {
     setChoiceValue("import-items", 100);
     setChoiceValue("import-x-limit", state?.preferences?.x_requests ?? 100);
   }
   if (id === "processing-dialog") {
-    $("processing-scope").textContent =
-      `${count(state?.total || 0)} · Existing library only`;
+    renderProcessingScope();
     setChoiceValue("process-x-limit", state?.preferences?.x_requests ?? 100);
     setChoiceValue(
       "process-description-limit",
       state?.preferences?.description_requests ?? 100,
     );
   }
+  d.showModal();
+  d.scrollTop = 0;
+  if (id === "settings-dialog") void loadModels();
+}
+function renderProcessingScope() {
+  const pending = state?.unprocessed || 0;
+  $("processing-scope").textContent = pending
+    ? `${count(pending)} ready to process`
+    : "No bookmarks waiting to process.";
+  ($("start-processing") as HTMLButtonElement).disabled = !pending;
 }
 async function openUrl(url: string) {
   if (!/^https?:\/\//.test(url))
@@ -665,7 +672,7 @@ function renderCoverage() {
   $("folder").hidden = choice("folder").options.length < 2;
   $("sync-new").textContent = state?.full_inventory_at
     ? "Sync new bookmarks"
-    : "Check all bookmarks";
+    : "Import bookmarks";
   $("sync-full").hidden = !state?.full_inventory_at;
   renderCount();
 }
@@ -880,13 +887,14 @@ function renderState(s: State) {
   $("browser-recovery").hidden = !s.stage_counts.some(
     (x) => x.state === "browser" && x.count,
   );
-  $("processing-state").textContent = s.paused
-    ? p.unfinished || p.syncs
-      ? "Paused"
-      : "Paused · Nothing waiting"
-    : s.running_run_count
+  $("processing-state").textContent =
+    !s.paused && s.running_run_count
       ? "Running"
-      : "Nothing waiting";
+      : p.unfinished || p.syncs
+        ? "Paused"
+        : s.unprocessed
+          ? `${count(s.unprocessed)} ready to process`
+          : "Nothing waiting";
   if (!changingPreferences && s.preferences) {
     for (const [id, key] of [
       ["cache-gib", "cache_gib"],
@@ -903,7 +911,8 @@ function renderState(s: State) {
   $("description-cooldown").textContent = cooldown
     ? `Image descriptions waiting until ${new Date(cooldown * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Local processing can continue.`
     : "";
-  ($("open-processing") as HTMLButtonElement).disabled = !s.total;
+  ($("open-processing") as HTMLButtonElement).disabled = !s.unprocessed;
+  if (dialog("processing-dialog").open) renderProcessingScope();
   $("settings-runs").hidden = !s.run_count;
   $("settings-runs").textContent =
     `View ${number(s.run_count)} ${s.run_count === 1 ? "run" : "runs"}`;
@@ -1631,6 +1640,7 @@ $("process-imported").onclick = () => showDialog("processing-dialog");
 action("start-processing", async () => {
   const result = await call("process_saved", {
     mode: "repair",
+    scope: "pending",
     limits: {
       x_requests: Number(choice("process-x-limit").value),
       description_requests: Number(choice("process-description-limit").value),
@@ -1641,8 +1651,8 @@ action("start-processing", async () => {
   feedback(
     "notice",
     result.queued
-      ? "Processing started."
-      : "Existing work is already queued. Open Runs to resume it.",
+      ? `Processing ${count(result.queued)}.`
+      : "No bookmarks waiting to process.",
   );
 });
 for (const [id, key] of [

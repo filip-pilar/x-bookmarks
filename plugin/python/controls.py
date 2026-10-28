@@ -7,6 +7,11 @@ from store import db, setting, config
 RUN = contextvars.ContextVar('processing_run', default=None)
 DEFAULTS = {'cache_gib': 8, 'local_workers': 0, 'description_workers': 0,
             'video_height': 480, 'x_requests': 100, 'description_requests': 100}
+# Status and the pending-only action must select the same bookmarks. Existing
+# work belongs to its run, including failed work that needs an explicit retry.
+PENDING_ITEMS = """i.active=1 AND (i.processed_hash IS NULL OR i.processed_hash!=i.hash)
+    AND NOT EXISTS(SELECT 1 FROM jobs j WHERE j.item=i.id AND j.kind='process'
+        AND j.state NOT IN ('complete','cancelled'))"""
 
 
 class BudgetReached(RuntimeError):
@@ -147,5 +152,5 @@ def snapshot():
     account = (__import__('subscription').load('accounts', {}) or {}).get('active') or ''
     with db() as c:
         cooldowns = [dict(r) for r in c.execute('SELECT until,reason FROM provider_cooldowns WHERE account=? AND until>?', (account, time.time()))]
-        unprocessed = c.execute("SELECT count(*) FROM items i WHERE active=1 AND (processed_hash IS NULL OR processed_hash!=hash) AND NOT EXISTS(SELECT 1 FROM jobs j WHERE j.item=i.id AND j.kind='process' AND j.state NOT IN ('complete','cancelled'))").fetchone()[0]
+        unprocessed = c.execute(f"SELECT count(*) FROM items i WHERE {PENDING_ITEMS}").fetchone()[0]
     return {'preferences': preferences(), 'cooldowns': cooldowns, 'unprocessed': unprocessed}

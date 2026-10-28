@@ -1,6 +1,14 @@
 # Verification and remaining limitations
 
-Version 0.7.9 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.10 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.10 interaction stability
+
+Dialogs keep a fixed top anchor as Advanced, feedback or cooldown content changes. Their sticky headings cover the top edge while scrolling. The library and reader reserve constant end space for the feedback dock; clearing it no longer changes scroll height. Import labels describe a bounded run, and API-call limits explain their relation to posts and spending.
+
+Normal UI processing uses a shared pending-item condition for status and queue selection. In an isolated ten-item SQLite library, one eligible item queued exactly once across two concurrent requests; completed bookmarks and existing paused/failed jobs stayed untouched. Explicit item rebuild remained available. An empty pending action left the library paused. No worker or provider ran in this rehearsal.
+
+The production panel in a controlled MCP host showed zero heading movement on desktop and 390-pixel dark layouts when expanding Advanced. A controlled settings error/cooldown retained the dialog anchor and rolled back the failed setting. Clearing feedback at the end of the library changed neither scroll position nor scroll height. The Process dialog displayed one eligible bookmark and sent `scope="pending"`. This is a simulated host check, not a claim of zero layout shifts in every desktop host configuration. No real import or processing ran. Installation is verified separately.
 
 ## Verified for 0.7.9 bulk-processing controls
 

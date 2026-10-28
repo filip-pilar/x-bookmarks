@@ -121,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
                 "status": lambda: query_status(args),
                 "sync": lambda: jobs.sync(args.get("mode", "new"), args.get('process', False), args.get('limits')),
                 "process_saved": lambda: jobs.process_saved(
-                    args.get("mode", "rebuild"), args.get("item"), args.get('limits')
+                    args.get("mode", "rebuild"), args.get("item"), args.get('limits'), args.get('scope', 'all')
                 ),
                 "control": lambda: jobs.control(args["action"], args.get("run"), args.get("item")),
                 "connect": xapi.begin,

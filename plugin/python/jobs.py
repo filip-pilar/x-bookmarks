@@ -411,19 +411,23 @@ def finish_sync(run, p):
         c.execute("DELETE FROM scan_folders WHERE run=?", (run,))
 
 
-def process_saved(mode="rebuild", item=None, limits=None):
+def process_saved(mode="rebuild", item=None, limits=None, scope="all"):
     __import__('controls').validate_limits(limits, processing=True)
     require_runtime()
     if mode not in ("rebuild", "repair", "refresh"):
         raise ValueError("Unknown processing mode.")
+    if scope not in ("pending", "all"):
+        raise ValueError("Unknown processing scope.")
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
         run = __import__("uuid").uuid4().hex
         rows = c.execute(
-            "SELECT id FROM items WHERE active=1" + (" AND id=?" if item else ""),
+            "SELECT i.id FROM items i WHERE "
+            + (__import__('controls').PENDING_ITEMS if scope == "pending" else "i.active=1")
+            + (" AND i.id=?" if item else ""),
             (item,) if item else (),
         ).fetchall()
-        if item and not rows:
+        if item and not rows and not c.execute("SELECT 1 FROM items WHERE id=? AND active=1", (item,)).fetchone():
             raise ValueError("Bookmark is not in this library.")
         for row in rows:
             enqueue(c, "process", row[0], {"mode": mode, "retry": mode == "repair"}, run=run)
@@ -432,7 +436,7 @@ def process_saved(mode="rebuild", item=None, limits=None):
     if queued:
         __import__("pipeline").authorize(run, limits)
     WAKE.set()
-    return {"queued": queued, "mode": mode, "run": run if queued else None, "network_allowed": mode != "rebuild"}
+    return {"queued": queued, "mode": mode, "scope": scope, "run": run if queued else None, "network_allowed": mode != "rebuild"}
 
 
 def control(action, run=None, item=None):
