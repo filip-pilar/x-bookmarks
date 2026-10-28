@@ -1,6 +1,12 @@
 # Verification and remaining limitations
 
-Version 0.7.10 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.11 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.11 control feedback
+
+Dropdown triggers and options have explicit pointer hover, pressed and keyboard-focus states. Interaction colors derive from the foreground/background pair, so equal primary/secondary host surfaces cannot erase the highlight. The selected checkmark remains distinct from the hovered row. Shared feedback also covers view switches, disclosure rows, buttons and links; disabled and busy buttons do not respond as available controls. State changes use paint only, without movement or resizing.
+
+Actual pointer movement and mouse press/release in the built-panel harness verified different resting, hovered and pressed colors. Arrow keys highlighted the next option with an inset focus outline, and Escape returned focus to the trigger. Light and dark host fixtures deliberately used identical primary/secondary surfaces; filter and modal dropdown highlights remained visible. View-switch and disclosure hover changed their fill; the disabled Process button stayed unchanged. Control rectangles remained unchanged between resting and hovered states. These are controlled host checks; installation is verified separately. No real import or processing ran.
 
 ## Verified for 0.7.10 interaction stability
 
