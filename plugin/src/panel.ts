@@ -8,7 +8,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.8.0" };
+const appInfo = { name: "Bookmark Library", version: "0.8.1" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;

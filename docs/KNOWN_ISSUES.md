@@ -1,14 +1,14 @@
 # Verification and remaining limitations
 
-Version 0.8.0 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.8.1 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
 
-## Verified for 0.8.0 Activity
+## Verified for 0.8.1 Activity
 
 Activity replaces the import/processing dialogs and persistent progress banner. It provides independent import/processing controls, a single ordinary import scope choice, disclosed request guardrails, paginated bookmark status, per-source progress and History. Settings retains preferences/accounts/support. Complete means all applicable source work finished; searchable text alone does not imply media completion. Browser-only and unavailable sources remain visible.
 
 Isolated SQLite rehearsals verified count partitioning, pagination, safe pause/resume, additional import allowances with an unchanged saved cursor/page, targeted retry and preservation of automatic backoff on another source of the same bookmark. Browser-only runs remain Needs attention and unavailable runs Partial. A generated 100,100-bookmark/100,009-stage library returned a 20-row Activity page in 0.19 seconds on the development Mac; this is a local measurement, not a cross-device performance guarantee. No provider calls were made.
 
-The actual built panel was exercised in an isolated MCP/SDK host at desktop and narrow sizes. A completed stage left both visible row positions unchanged in a filtered queue until deliberate refresh. Checks also covered import choices, nested menus/Escape, source expansion, reader return, history pause, inline action failure and connection loss. The host/composer are simulated; an already-open installed panel needs reopening. Earlier version sections below record historical checks, not the current placement of replaced controls.
+The actual built panel was exercised in an isolated MCP/SDK host at desktop and narrow sizes. A completed stage left both visible row positions unchanged in a filtered queue until deliberate refresh. Checks also covered import choices, nested menus/Escape, expanding import limits within the composer-safe viewport, source expansion, reader return, history pause, inline action failure and connection loss. The host/composer are simulated; an already-open installed panel needs reopening. Earlier version sections below record historical checks, not the current placement of replaced controls.
 
 ## Verified for 0.7.15 import wording and dialog dismissal
 

@@ -170,6 +170,19 @@ export class Activity {
   <div id="activity-coverage-options" class="activity-popover" popover="auto" aria-labelledby="activity-coverage-heading"><div class="activity-popover-head"><h3 id="activity-coverage-heading">Import coverage</h3><button class="quiet icon-only" data-close-activity aria-label="Close coverage">${icon("close")}</button></div><dl id="activity-coverage-values" class="storage-list"></dl><p class="muted">X may not return every historical bookmark.</p></div>
   <div id="activity-more-options" class="activity-popover activity-menu" popover="auto" aria-label="Activity options"><button id="activity-diagnostics">Export diagnostics</button><button id="activity-settings">Processing settings</button></div>`;
     $("search-form").before(section);
+    section
+      .querySelectorAll<HTMLElement>(".activity-popover-head")
+      .forEach((head) => {
+        const body = document.createElement("div");
+        body.className = "activity-popover-body";
+        while (head.nextSibling) body.append(head.nextSibling);
+        head.after(body);
+      });
+    const importFooter = document.createElement("div");
+    importFooter.id = "activity-import-footer";
+    importFooter.className = "activity-popover-footer";
+    importFooter.append($("activity-start-import"), $("activity-recheck"));
+    $("activity-import-options").append(importFooter);
     for (const [id, values] of [
       [
         "activity-scope",
@@ -324,7 +337,7 @@ export class Activity {
         error.className = "error";
         error.setAttribute("role", "alert");
         error.textContent = (e as Error).message;
-        popup.append(error);
+        (popup.querySelector(".activity-popover-body") || popup).append(error);
         error.scrollIntoView({ block: "nearest" });
       }
     } finally {
@@ -353,10 +366,16 @@ export class Activity {
     p.showPopover();
     trigger.setAttribute("aria-expanded", "true");
     const rect = trigger.getBoundingClientRect(),
-      bounds = $("main").getBoundingClientRect();
+      bounds = $("activity-scroll").getBoundingClientRect();
     p.style.maxHeight = `${Math.max(120, bounds.bottom - bounds.top - 24)}px`;
     p.style.left = `${Math.max(12, Math.min(rect.right - p.offsetWidth, innerWidth - p.offsetWidth - 12))}px`;
-    p.style.top = `${Math.max(bounds.top + 8, Math.min(rect.bottom + 8, bounds.bottom - p.offsetHeight - 8))}px`;
+    const top = Math.max(
+      bounds.top + 8,
+      Math.min(rect.bottom + 8, bounds.bottom - p.offsetHeight - 8),
+    );
+    p.style.top = `${top}px`;
+    // Expanding Limits or action feedback scrolls inside the anchored surface.
+    p.style.maxHeight = `${Math.max(80, bounds.bottom - top - 8)}px`;
     Array.from(
       p.querySelectorAll<HTMLElement>(
         ".choice button, input, button:not([data-close-activity])",
@@ -450,6 +469,7 @@ export class Activity {
     this.budgetCopy();
     $("activity-sign-in").hidden = !!state?.connected;
     $("activity-import-form").hidden = !state?.connected;
+    $("activity-import-footer").hidden = !state?.connected;
     this.disable("activity-start-import", !this.online || !state?.connected);
     if (!s) return;
     const imp = s.import,

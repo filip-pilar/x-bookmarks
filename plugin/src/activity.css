@@ -322,7 +322,27 @@
   box-shadow: 0 10px 32px #00000020;
   padding: 20px;
 }
+.activity-popover:has(.activity-popover-body):popover-open {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.activity-popover-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 3px;
+  margin: -3px;
+}
+.activity-popover-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 16px;
+}
 .activity-popover-head {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
