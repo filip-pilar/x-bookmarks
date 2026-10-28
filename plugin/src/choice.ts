@@ -67,6 +67,9 @@ export class Choice {
       this.placeholder
     );
   }
+  get disabled() {
+    return this.unavailable;
+  }
   set disabled(value: boolean) {
     if (value !== this.unavailable) {
       this.unavailable = value;

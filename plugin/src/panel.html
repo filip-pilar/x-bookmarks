@@ -309,7 +309,9 @@
         background: var(--surface);
         color: var(--ink);
         box-shadow: 0 8px 28px #0002;
-        overflow: visible;
+        max-height: var(--filter-height, calc(100svh - 32px));
+        overflow: auto;
+        overscroll-behavior: contain;
       }
       #filters:popover-open {
         display: grid;
@@ -377,17 +379,6 @@
       #results {
         margin-top: 0;
       }
-      #results:empty[aria-busy="true"] {
-        min-height: 380px;
-      }
-      #results:empty[aria-busy="true"]::before {
-        content: "Loading your library…";
-        display: block;
-        padding: 60px 16px;
-        text-align: center;
-        color: var(--muted);
-        font-size: 14px;
-      }
       .bookmark {
         display: block;
         width: 100%;
@@ -398,6 +389,10 @@
         padding: 20px 16px;
         min-height: 100px;
         overflow-wrap: anywhere;
+      }
+      .bookmark:focus-visible,
+      .scrollport:focus-visible {
+        outline-offset: -3px;
       }
       .bookmark .body {
         white-space: normal;
@@ -962,9 +957,16 @@
         font-size: 13px;
       }
       #empty {
-        padding: 60px 16px;
+        min-height: 240px;
+        padding: 48px 16px;
         text-align: center;
         color: var(--muted);
+      }
+      #empty p {
+        margin: 0 0 16px;
+      }
+      #empty button {
+        color: var(--ink);
       }
       footer {
         display: flex;
@@ -993,7 +995,9 @@
       }
       #feedback-dock:has(#notice[hidden]):has(#error[hidden]):has(
           #refresh-content[hidden]
-        ):has(#progress[hidden]):has(#connection-status[hidden]) {
+        ):has(#progress[hidden]):has(#connection-status[hidden]):has(
+          #load-failure[hidden]
+        ) {
         display: none;
       }
       #feedback-dock .feedback {
@@ -1022,6 +1026,7 @@
         padding-right: 14px;
       }
       #connection-status,
+      #load-failure,
       .review-toolbar,
       .review-footer {
         display: flex;
@@ -1032,16 +1037,35 @@
       #connection-status {
         padding: 5px 0;
       }
+      #load-failure {
+        padding: 5px 0;
+        font-size: 13px;
+      }
+      #load-failure button {
+        flex-shrink: 0;
+      }
       #folder-status {
         margin: 8px 0;
         font-size: 13px;
       }
       .review-footer {
         position: sticky;
-        bottom: -24px;
+        bottom: calc(-1 * var(--dialog-padding));
         background: var(--surface);
-        padding: 12px 0;
+        padding: 12px 0 var(--dialog-padding);
+        margin-bottom: calc(-1 * var(--dialog-padding));
         border-top: 1px solid var(--line);
+      }
+      .review-body {
+        position: relative;
+        min-height: 176px;
+      }
+      #review-loading {
+        position: absolute;
+        inset: 24px 0 auto;
+        text-align: center;
+        background: var(--surface);
+        padding: 8px;
       }
       #review-list[aria-busy="true"] {
         opacity: 0.6;
@@ -1446,6 +1470,9 @@
         display: block;
         margin-bottom: 8px;
       }
+      #preferences-feedback {
+        min-height: 1.55em;
+      }
       .processing-options {
         margin-top: 18px;
       }
@@ -1502,6 +1529,10 @@
         </div>
       </header>
       <aside id="feedback-dock" aria-label="Library updates">
+        <div id="load-failure" hidden>
+          <span id="load-failure-text" role="alert"></span>
+          <button id="retry-load" class="quiet">Try again</button>
+        </div>
         <div id="connection-status" role="status" hidden>
           <span id="connection-message">Library service unavailable</span
           ><button id="retry-connection" class="quiet">Retry</button>
@@ -1645,7 +1676,10 @@
           aria-label="Bookmarks"
         >
           <div id="results" aria-busy="true"></div>
-          <div id="empty" hidden></div>
+          <div id="empty" hidden>
+            <p id="empty-message" role="status"></p>
+            <button id="empty-action" hidden></button>
+          </div>
           <footer><button id="more" hidden>Load more</button></footer>
         </div>
       </section>
@@ -1846,6 +1880,9 @@
           <button id="open-processing">Process saved bookmarks</button>
           <details class="processing-options">
             <summary>Advanced</summary>
+            <p id="preferences-feedback" class="muted" role="status">
+              Changes save automatically.
+            </p>
             <div class="processing-grid">
               <div>
                 <label id="local-workers-label" for="local-workers-trigger"
@@ -1937,8 +1974,11 @@
           </div>
           <button id="review-refresh" class="quiet">Refresh</button>
         </div>
-        <div id="review-list" class="issues" aria-busy="false"></div>
-        <p id="review-empty" class="muted" hidden></p>
+        <div class="review-body">
+          <div id="review-list" class="issues" aria-busy="false"></div>
+          <p id="review-empty" class="muted" hidden></p>
+          <p id="review-loading" class="muted" role="status" hidden></p>
+        </div>
         <div class="review-footer">
           <span
             id="review-count"
@@ -2053,6 +2093,39 @@
         <div class="actions">
           <button id="start-processing" class="primary">
             Start processing
+          </button>
+        </div>
+      </dialog>
+      <dialog id="disconnect-dialog" aria-labelledby="disconnect-heading">
+        <div class="dialog-header">
+          <h2 id="disconnect-heading">Disconnect ChatGPT?</h2>
+          <button
+            class="quiet icon-only icon-button"
+            data-close="disconnect-dialog"
+            aria-label="Cancel disconnect"
+          >
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="feedback error" role="alert" data-error hidden></div>
+        <p id="disconnect-account"></p>
+        <p class="muted">
+          New image descriptions will need a connection. Your saved bookmarks
+          stay available.
+        </p>
+        <div class="actions">
+          <button data-close="disconnect-dialog">Keep connected</button>
+          <button id="confirm-disconnect" class="danger-action">
+            Disconnect
           </button>
         </div>
       </dialog>

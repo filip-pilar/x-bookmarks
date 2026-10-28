@@ -7,7 +7,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.7.11" };
+const appInfo = { name: "Bookmark Library", version: "0.7.12" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
@@ -221,6 +221,9 @@ let loadedQuery = "",
   librarySignature = "",
   folderSignature = "",
   refreshing = false;
+let loadFailure:
+  { message: string; detail: string; reset: boolean } | undefined;
+const initializedLimits = new Set<string>();
 let returnItem = "",
   currentMatch = "";
 let availableModels: { value: string; label: string }[] = [],
@@ -241,11 +244,11 @@ const count = (n: number, word = "bookmark") =>
   `${number(n)} ${word}${n === 1 ? "" : "s"}`;
 const bytes = (n = 0) =>
   n >= 1024 ** 3
-    ? `${(n / 1024 ** 3).toFixed(1)} GB`
+    ? `${(n / 1024 ** 3).toLocaleString(undefined, { maximumFractionDigits: 1 })} GiB`
     : n >= 1024 ** 2
-      ? `${(n / 1024 ** 2).toFixed(1)} MB`
+      ? `${(n / 1024 ** 2).toLocaleString(undefined, { maximumFractionDigits: 1 })} MiB`
       : n >= 1024
-        ? `${Math.ceil(n / 1024)} KB`
+        ? `${number(Math.ceil(n / 1024))} KiB`
         : `${n} B`;
 const date = (t: number) =>
   new Date(t * 1000).toLocaleString(undefined, {
@@ -354,18 +357,21 @@ function showDialog(id: string) {
   ))
     e.hidden = true;
   for (const c of choices.values()) c.close();
-  if (id === "sync-dialog") {
+  if (id === "sync-dialog" && !initializedLimits.has(id)) {
     setChoiceValue("import-items", 100);
     setChoiceValue("import-x-limit", state?.preferences?.x_requests ?? 100);
   }
   if (id === "processing-dialog") {
     renderProcessingScope();
+  }
+  if (id === "processing-dialog" && !initializedLimits.has(id)) {
     setChoiceValue("process-x-limit", state?.preferences?.x_requests ?? 100);
     setChoiceValue(
       "process-description-limit",
       state?.preferences?.description_requests ?? 100,
     );
   }
+  initializedLimits.add(id);
   d.showModal();
   d.scrollTop = 0;
   if (id === "settings-dialog") void loadModels();
@@ -535,6 +541,11 @@ async function loadReview(offset = 0) {
   const focus = document.activeElement;
   const pageChanged = offset !== reviewOffset;
   $("review-list").setAttribute("aria-busy", "true");
+  $("review-list").inert = true;
+  $("review-empty").hidden = true;
+  $("review-loading").textContent =
+    view === "runs" ? "Loading runs…" : "Loading issues…";
+  $("review-loading").hidden = false;
   for (const id of ["review-prev", "review-next"])
     ($(id) as HTMLButtonElement).disabled = true;
   try {
@@ -602,6 +613,8 @@ async function loadReview(offset = 0) {
   } finally {
     if (request === reviewRequest) {
       $("review-list").setAttribute("aria-busy", "false");
+      $("review-list").inert = false;
+      $("review-loading").hidden = true;
       ($("review-prev") as HTMLButtonElement).disabled = reviewOffset === 0;
       ($("review-next") as HTMLButtonElement).disabled = reviewNext === null;
       if (
@@ -615,6 +628,7 @@ async function loadReview(offset = 0) {
   }
 }
 function openReview(view: "issues" | "runs") {
+  if (view === reviewView && dialog("issues-dialog").open) return;
   if (view !== reviewView) {
     $("review-list").replaceChildren();
     $("review-count").textContent = "";
@@ -639,6 +653,10 @@ function inventoryLabel() {
 }
 function renderCount() {
   if (loading) return;
+  if (loadFailure && !rows.length) {
+    $("count").textContent = "Unavailable";
+    return;
+  }
   const coverage =
     !state?.full_inventory_at && state?.last_inventory?.mode === "sample"
       ? " · Sample"
@@ -917,6 +935,7 @@ function renderState(s: State) {
   $("settings-runs").textContent =
     `View ${number(s.run_count)} ${s.run_count === 1 ? "run" : "runs"}`;
   renderCoverage();
+  renderEmptyState();
 }
 function retryNotice(r: { retried: number }) {
   feedback(
@@ -967,12 +986,13 @@ function renderFilters() {
     "aria-label",
     active ? `Filters, ${active} active` : "Filters",
   );
-  $("filter-toggle").title = [
-    folder.value ? folder.label : "",
-    sort.value && !searching ? sort.label : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  $("filter-toggle").title =
+    [
+      folder.value ? folder.label : "",
+      sort.value && !searching ? sort.label : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Filters";
   ($("reset-filters") as HTMLButtonElement).disabled =
     !folder.value && !sort.value;
   sort.disabled = searching;
@@ -982,11 +1002,16 @@ function renderFilters() {
 }
 function positionFilters() {
   const trigger = $("filter-toggle").getBoundingClientRect();
-  const popup = $("filters"),
-    rect = popup.getBoundingClientRect();
+  const popup = $("filters");
   const bottom = $("library-scroll").getBoundingClientRect().bottom;
+  const safeTop = Math.max(8, $("main").getBoundingClientRect().top);
+  popup.style.setProperty(
+    "--filter-height",
+    `${Math.max(96, bottom - safeTop - 16)}px`,
+  );
+  const rect = popup.getBoundingClientRect();
   popup.style.left = `${Math.max(16, Math.min(trigger.left, innerWidth - rect.width - 16))}px`;
-  popup.style.top = `${Math.max(8, Math.min(trigger.bottom + 6, bottom - rect.height - 16))}px`;
+  popup.style.top = `${Math.max(safeTop, Math.min(trigger.bottom + 6, bottom - rect.height - 16))}px`;
 }
 function closeFilters(restoreFocus = false) {
   if (!$("filters").matches(":popover-open")) return;
@@ -1007,13 +1032,13 @@ function updateSearchControl() {
 function clearSearch() {
   input("query").value = "";
   input("query").focus({ preventScroll: true });
-  if (searching || (loading && pendingQuery)) {
+  if (searching || (loading && pendingQuery) || loadFailure) {
     if (selected) showLibrary(false);
     void act(() => load());
   }
   updateSearchControl();
 }
-async function load(reset = true) {
+async function load(reset = true, focusAfter?: "search" | "more") {
   const query = input("query").value.trim(),
     key = JSON.stringify([
       query,
@@ -1023,8 +1048,12 @@ async function load(reset = true) {
     ]);
   if (loading && key === loadingKey) return;
   loadingKey = key;
+  if (reset) detailEpoch++;
+  const previousLength = rows.length;
   pendingQuery = query;
   loading = true;
+  loadFailure = undefined;
+  renderEmptyState();
   const request = ++epoch;
   $("results").setAttribute("aria-busy", "true");
   ($(reset ? "search-submit" : "more") as HTMLButtonElement).disabled = true;
@@ -1074,6 +1103,13 @@ async function load(reset = true) {
     renderFilters();
     renderList();
     if (reset) $("library-scroll").scrollTop = 0;
+    if (focusAfter === "search") $("query").focus({ preventScroll: true });
+    if (focusAfter === "more" && next === null) {
+      const firstNew = $("results").children[previousLength] as
+        HTMLElement | undefined;
+      (firstNew || $("library-scroll")).focus({ preventScroll: true });
+      firstNew?.scrollIntoView({ block: "nearest" });
+    }
     $("refresh-content").hidden = true;
     announce(
       searching
@@ -1082,8 +1118,12 @@ async function load(reset = true) {
     );
   } catch (e) {
     if (request === epoch) {
-      $("count").textContent = "Couldn’t load bookmarks";
-      throw e;
+      loadFailure = {
+        message: query ? "Search couldn’t finish." : "Couldn’t load bookmarks.",
+        detail: (e as Error).message,
+        reset,
+      };
+      announce(loadFailure.message);
     }
   } finally {
     if (request === epoch) {
@@ -1094,6 +1134,7 @@ async function load(reset = true) {
       $("search-submit").removeAttribute("aria-busy");
       $("more").removeAttribute("aria-busy");
       updateSearchControl();
+      renderEmptyState();
       renderCount();
     }
   }
@@ -1229,15 +1270,40 @@ function renderList() {
     if (gallery) thumbnailObserver.observe(card);
   });
   renderCount();
-  $("empty").hidden = rows.length > 0;
-  $("empty").textContent = searching
-    ? `No matches for “${loadedQuery}”. Try another phrase${choice("folder").value ? " or clear the folder filter" : ""}.`
-    : state?.total
-      ? "No bookmarks in this folder yet."
-      : state?.connected
-        ? "No bookmarks yet. Choose Sync to import."
-        : "Connect X in Settings to import your bookmarks.";
+  renderEmptyState();
   $("more").hidden = next === null;
+}
+function renderEmptyState() {
+  $("empty").hidden = rows.length > 0;
+  $("empty-message").textContent = loading
+    ? pendingQuery
+      ? "Searching…"
+      : "Loading your library…"
+    : loadFailure
+      ? loadFailure.message
+      : searching
+        ? `No matches for “${loadedQuery}”.`
+        : choice("folder").value
+          ? "No bookmarks in this folder."
+          : state?.connected
+            ? "No bookmarks yet."
+            : "Connect X to import your bookmarks.";
+  $("empty-action").hidden = loading;
+  $("empty-action").textContent = loadFailure
+    ? "Try again"
+    : searching
+      ? "Clear search"
+      : choice("folder").value
+        ? "Clear folder filter"
+        : state?.connected
+          ? "Import bookmarks"
+          : "Connect X";
+  $("empty-message").title = loadFailure?.detail || "";
+  $("load-failure").hidden = !loadFailure || !rows.length;
+  $("load-failure-text").textContent = loadFailure
+    ? `${loadFailure.message} Previous results are still shown.`
+    : "";
+  $("load-failure-text").title = loadFailure?.detail || "";
 }
 async function openItem(id: string, evidenceId?: string) {
   closeFilters();
@@ -1509,7 +1575,7 @@ $("search-form").onsubmit = (e) => {
     clearSearch();
     return;
   }
-  if (query === loadedQuery && !loading) {
+  if (query === loadedQuery && !loading && !loadFailure) {
     if (selected) showLibrary();
     return;
   }
@@ -1533,7 +1599,13 @@ $("filters").addEventListener("beforetoggle", (e) => {
     requestAnimationFrame(() => {
       if (!$("filters").matches(":popover-open")) return;
       positionFilters();
-      $("folder-trigger").focus({ preventScroll: true });
+      const first =
+        !$("folder").hidden && !choice("folder").disabled
+          ? $("folder-trigger")
+          : !choice("sort").disabled
+            ? $("sort-trigger")
+            : $("close-filters");
+      first.focus({ preventScroll: true });
     });
 });
 $("filters").addEventListener("toggle", () => {
@@ -1569,12 +1641,30 @@ for (const [id, value] of [
   ["view-gallery", true],
 ] as const)
   $(id).onclick = () => {
+    if (gallery === value) return;
+    const port = $("library-scroll"),
+      top = port.getBoundingClientRect().top;
+    const anchor = Array.from($("results").children).find(
+      (e) => e.getBoundingClientRect().bottom > top,
+    );
+    const offset = anchor?.getBoundingClientRect().top;
     gallery = value;
     renderList();
+    if (anchor && offset !== undefined)
+      port.scrollTop += anchor.getBoundingClientRect().top - offset;
   };
 for (const id of ["folder", "sort"])
   choice(id).onChange = () => void act(() => load());
-action("more", () => load(false));
+action("more", () => load(false, "more"));
+action("retry-load", () => load(loadFailure?.reset ?? true, "search"));
+action("empty-action", async () => {
+  if (loadFailure) await load(loadFailure.reset, "search");
+  else if (searching) clearSearch();
+  else if (choice("folder").value) {
+    choice("folder").value = "";
+    await load();
+  } else showDialog(state?.connected ? "sync-dialog" : "settings-dialog");
+});
 function showLibrary(restoreFocus = true) {
   detailEpoch++;
   $("detail").hidden = true;
@@ -1655,26 +1745,42 @@ action("start-processing", async () => {
       : "No bookmarks waiting to process.",
   );
 });
-for (const [id, key] of [
+const processingChoices = [
   ["cache-gib", "cache_gib"],
   ["local-workers", "local_workers"],
   ["description-workers", "description_workers"],
   ["video-height", "video_height"],
-] as const) {
+] as const;
+for (const [id, key] of processingChoices) {
   choice(id).onChange = () =>
     void act(async () => {
       const previous = state?.preferences[key] ?? 0;
       changingPreferences = true;
-      choice(id).disabled = true;
+      for (const [control] of processingChoices)
+        choice(control).disabled = true;
+      const status = $("preferences-feedback");
+      status.className = "muted";
+      status.setAttribute("role", "status");
+      status.textContent = "Saving…";
+      status.title = "";
+      let saved = false;
       try {
         await call("processing_settings", { [key]: Number(choice(id).value) });
+        saved = true;
         await refresh();
+        status.textContent = "Saved";
       } catch (error) {
-        setChoiceValue(id, previous);
-        throw error;
+        if (!saved) setChoiceValue(id, previous);
+        status.className = saved ? "muted" : "error";
+        status.setAttribute("role", "alert");
+        status.textContent = saved
+          ? "Saved. Connection lost."
+          : "Couldn’t save. Try again.";
+        status.title = (error as Error).message;
       } finally {
         changingPreferences = false;
-        choice(id).disabled = false;
+        for (const [control] of processingChoices)
+          choice(control).disabled = false;
         requestAnimationFrame(() => {
           if (
             document.activeElement === document.body &&
@@ -1735,8 +1841,22 @@ action("reconnect-chatgpt", async () => {
   await openUrl(r.url);
 });
 choice("model").onChange = () => void act(() => changeChatGPT("model"));
-action("disconnect-chatgpt", async () => {
+$("disconnect-chatgpt").onclick = () => {
+  $("disconnect-account").textContent =
+    state?.chatgpt.accounts.find((a) => a.id === state?.chatgpt.active)
+      ?.label || "Current account";
+  dialog("settings-dialog").close();
+  showDialog("disconnect-dialog");
+};
+dialog("disconnect-dialog").addEventListener("close", () => {
+  if (!dialog("settings-dialog").open) showDialog("settings-dialog");
+  if (!$("disconnect-chatgpt").hidden)
+    $("disconnect-chatgpt").focus({ preventScroll: true });
+});
+action("confirm-disconnect", async () => {
   const r = await call("disconnect_chatgpt");
+  dialog("disconnect-dialog").close();
+  showDialog("settings-dialog");
   feedback(
     "notice",
     r.remote_revocation_confirmed

@@ -1,6 +1,14 @@
 # Verification and remaining limitations
 
-Version 0.7.11 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.12 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.12 interaction recovery
+
+Failed library loads offer a retry; failed searches preserve prior results and identify them as such. Empty results offer a relevant next action. Starting a new search cancels a pending reader transition. Filters focus an available control, remain bounded in short windows, and preserve keyboard focus visibility. Switching List/Gallery preserves the first visible bookmark; reopening Import/Process retains draft limits for the current panel session.
+
+Advanced settings show saving/saved/error feedback in place and roll back rejected changes. Run history has an explicit loading state and disables stale actions while refreshing. Disconnecting ChatGPT requires confirmation. Source links preserve modifier clicks; storage uses binary units consistently, and unavailable-media copy avoids unsupported claims.
+
+The built panel in an isolated MCP host verified initial-load recovery, stale-result feedback, a delayed detail response followed by search, retained import limits, settings success/rollback without dialog movement, disconnect cancellation, and delayed run history. Stable List/Gallery checks retained the anchor within one CSS pixel. A 390×560 dark layout kept menus within the viewport with no horizontal overflow. These are controlled host checks, not a claim of zero shifts in every desktop configuration. No real import, account change or media processing ran.
 
 ## Verified for 0.7.11 control feedback
 

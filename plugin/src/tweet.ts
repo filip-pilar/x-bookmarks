@@ -91,7 +91,7 @@ function SafeImage(props: ImgHTMLAttributes<HTMLImageElement>) {
         {
           className: `${props.className || ""} media-unavailable image-unavailable`,
         },
-        "Image unavailable · saved text remains available",
+        "Image unavailable",
       )
     : h("img", {
         ...props,
@@ -145,7 +145,7 @@ function SavedVideo({ media }: { media: Media }) {
       ? h(
           "span",
           { className: "media-unavailable" },
-          "Video unavailable here. Open on X to try the original; saved descriptions and transcripts remain available.",
+          "Video unavailable. Open on X to try the original.",
         )
       : h("video", {
           className: "saved-video",
@@ -324,6 +324,15 @@ export function renderTweets(
         "div",
         {
           onClick: (e) => {
+            if (
+              e.defaultPrevented ||
+              e.button !== 0 ||
+              e.metaKey ||
+              e.ctrlKey ||
+              e.shiftKey ||
+              e.altKey
+            )
+              return;
             const a = (e.target as HTMLElement).closest("a");
             if (a) {
               e.preventDefault();
