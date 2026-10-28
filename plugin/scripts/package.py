@@ -28,7 +28,7 @@ if missing:
 files = {root / name for name in required}
 for pattern in (
     "assets/*.png", "assets/*.svg", "licenses/*.txt", "python/*.py",
-    "src/*.ts", "src/*.html", "scripts/*.py", "scripts/*.mjs", "scripts/*.sh",
+    "src/*.ts", "src/*.html", "src/*.css", "scripts/*.py", "scripts/*.mjs", "scripts/*.sh",
     "scripts/*.swift", "skills/**/*.md", "vendor/transcribe/scripts/*.py",
     "vendor/transcribe/runtime/Sources/**/*.swift",
 ):

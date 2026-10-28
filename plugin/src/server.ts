@@ -11,7 +11,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home =
   process.env.BOOKMARK_LIBRARY_HOME ||
   join(homedir(), "Library/Application Support/BookmarkLibrary");
-const ui = "ui://bookmark-library/control-0.7.15.html";
+const ui = "ui://bookmark-library/control-0.8.0.html";
 const iconSource = await readFile(join(root, "assets/x-bookmark.svg"), "utf8");
 const icons = (["light", "dark"] as const).map((theme) => ({
   src:
@@ -52,7 +52,7 @@ async function ensure() {
     current = await request("status");
   } catch {}
   if (current) {
-    if (current.backend_version !== "0.7.15")
+    if (current.backend_version !== "0.8.0")
       throw new Error(
         "Bookmark Library backend needs a restart to load the installed update. Pause processing before restarting its local service.",
       );
@@ -92,7 +92,7 @@ async function ensure() {
           status = await request("status");
         } catch {}
         if (status) {
-          if (status.backend_version !== "0.7.15")
+          if (status.backend_version !== "0.8.0")
             throw new Error(
               "A different Bookmark Library backend is already running. Pause processing and restart its local service to load the update.",
             );
@@ -128,7 +128,7 @@ async function call(action: string, args: Record<string, unknown> = {}) {
   }
 }
 serveStdio(() => {
-  const server = new McpServer({ name: "bookmark-library", version: "0.7.15" });
+  const server = new McpServer({ name: "bookmark-library", version: "0.8.0" });
   const runLimits = z
     .object({
       x_requests: z.number().int().min(0).max(100000).optional(),
@@ -433,6 +433,12 @@ serveStdio(() => {
         action: z.enum(["pause", "resume", "retry"]),
         run: z.string().optional(),
         item: z.string().optional(),
+        failed_only: z
+          .boolean()
+          .optional()
+          .describe(
+            "For retry, preserve automatic backoff by retrying only failed or blocked stages. Activity uses true.",
+          ),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
@@ -603,6 +609,65 @@ serveStdio(() => {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     (args) => call("processing_details", args),
+  );
+  server.registerTool(
+    "activity",
+    {
+      description:
+        "Read a paginated bookmark-level work queue or run history, with consistent progress counts. Does not start or resume work.",
+      inputSchema: z.object({
+        view: z
+          .enum([
+            "all",
+            "active",
+            "waiting",
+            "attention",
+            "complete",
+            "partial",
+            "history",
+          ])
+          .default("all"),
+        query: z.string().max(300).optional(),
+        visible_ids: z
+          .array(z.string().regex(/^\d{1,25}$/))
+          .max(50)
+          .optional(),
+        offset: z.number().int().nonnegative().default(0),
+        limit: z.number().int().min(1).max(50).default(20),
+      }),
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    (args) => call("activity", args),
+  );
+  server.registerTool(
+    "activity_item",
+    {
+      description:
+        "Read a bookmark's source-stage progress, without changing work.",
+      inputSchema: z.object({
+        item: z.string().regex(/^\d{1,25}$/),
+        offset: z.number().int().nonnegative().default(0),
+      }),
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    (args) => call("activity_item", args),
+  );
+  server.registerTool(
+    "continue_import",
+    {
+      description:
+        "Explicitly continue a paused import from its saved cursor. Limits are ADDITIONAL bookmark and X-request allowances, zero means unlimited. Uses X credits; does not start media processing.",
+      inputSchema: z.object({
+        run: z.string(),
+        limits: runLimits.unwrap().omit({ description_requests: true }),
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
+    },
+    (args) => call("continue_import", args),
   );
   server.registerTool(
     "export_diagnostics",

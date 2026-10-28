@@ -92,7 +92,7 @@
         display: none !important;
       }
       main {
-        max-width: 840px;
+        max-width: 1040px;
         height: min(100dvh, var(--host-height, 100dvh));
         margin: auto;
         padding: var(--host-top, 0px) max(24px, var(--host-right, 0px))
@@ -114,12 +114,71 @@
         overflow: auto;
         overscroll-behavior: contain;
         scrollbar-gutter: stable;
-        scroll-padding-block: 16px 184px;
-        /* Keep room for the feedback dock even when it clears at the list end. */
-        padding: 4px 0 184px;
+        scroll-padding-block: 16px 48px;
+        padding: 4px 0 48px;
+      }
+      .page-nav {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .page-nav button {
+        padding: 8px 12px;
+        position: relative;
+      }
+      .page-nav button[aria-pressed="true"] {
+        background: var(--hover-fill);
+      }
+      .activity-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--muted);
+        position: absolute;
+        right: 5px;
+        top: 6px;
+        visibility: hidden;
+      }
+      #nav-activity[data-state="Running"] .activity-dot {
+        visibility: visible;
+        background: var(--ink);
+      }
+      #nav-activity[data-state="Needs attention"] .activity-dot {
+        visibility: visible;
+        background: light-dark(#9c6000, #e6b56c);
+      }
+      #library-refresh-slot {
+        width: 128px;
+        flex-shrink: 0;
+      }
+      #library-refresh-slot button {
+        font-size: 12px;
+      }
+      @media (max-width: 700px) {
+        .app-header {
+          flex-wrap: wrap;
+        }
+        .app-header h1 {
+          flex: 1;
+        }
+        .page-nav {
+          order: 3;
+          width: 100%;
+          justify-content: center;
+        }
+        #library-refresh-slot {
+          width: 34px;
+        }
+        #library-refresh-slot button {
+          font-size: 0;
+        }
+        #library-refresh-slot button::before {
+          content: "↻";
+          font-size: 18px;
+        }
       }
       #reader-scroll {
-        padding: 24px 16px 184px;
+        padding: 24px 16px 48px;
       }
       input[type="search"]::-webkit-search-cancel-button {
         display: none;
@@ -342,28 +401,6 @@
         font-size: 13px;
         display: block;
         margin-bottom: 7px;
-      }
-      #progress {
-        margin: 0;
-        padding: 13px 15px;
-        background: var(--soft);
-        border-radius: 11px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-      #progress-text {
-        font-size: 13px;
-        line-height: 1.6;
-      }
-      #progress .actions {
-        flex-shrink: 0;
-        gap: 6px;
-      }
-      #progress button {
-        font-size: 12px;
-        background: transparent;
       }
       .feedback {
         white-space: pre-wrap;
@@ -954,22 +991,6 @@
       .setting .actions {
         margin-top: 12px;
       }
-      .run {
-        padding: 14px 0;
-      }
-      .run + .run {
-        border-top: 1px solid var(--line);
-      }
-      .run p {
-        margin: 5px 0;
-      }
-      .run .actions {
-        margin-top: 9px;
-      }
-      .run-title {
-        font-size: 14px;
-        font-weight: 500;
-      }
       #report {
         overflow-wrap: anywhere;
         font-size: 13px;
@@ -997,25 +1018,22 @@
       #feedback-dock {
         position: fixed;
         z-index: 5;
-        bottom: calc(var(--composer-clearance) + 16px);
-        left: max(16px, var(--host-left, 0px));
-        right: max(16px, var(--host-right, 0px));
-        width: min(760px, calc(100% - 32px));
+        bottom: calc(var(--composer-clearance) + 12px);
+        left: 16px;
+        right: 16px;
+        width: min(560px, calc(100% - 32px));
         margin-inline: auto;
-        max-height: min(160px, 35svh);
+        max-height: 120px;
         overflow: auto;
-        overscroll-behavior: contain;
         background: var(--surface);
         border: 1px solid var(--line);
-        border-radius: 12px;
+        border-radius: 10px;
         box-shadow: 0 6px 24px #00000014;
         padding: 8px 40px 8px 14px;
       }
       #feedback-dock:has(#notice[hidden]):has(#error[hidden]):has(
-          #refresh-content[hidden]
-        ):has(#progress[hidden]):has(#connection-status[hidden]):has(
-          #load-failure[hidden]
-        ) {
+          #connection-status[hidden]
+        ):has(#load-failure[hidden]) {
         display: none;
       }
       #feedback-dock .feedback {
@@ -1028,25 +1046,8 @@
         right: 5px;
         top: 5px;
       }
-      #progress {
-        font-variant-numeric: tabular-nums;
-        padding: 5px 0;
-        background: transparent;
-        border-radius: 0;
-      }
-      #feedback-dock:has(#error[hidden]):has(#notice[hidden]):has(
-          #refresh-content[hidden]
-        )
-        #dismiss-feedback {
-        display: none;
-      }
-      #feedback-dock:has(#progress:not([hidden])) {
-        padding-right: 14px;
-      }
       #connection-status,
-      #load-failure,
-      .review-toolbar,
-      .review-footer {
+      #load-failure {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -1062,41 +1063,8 @@
       #load-failure button {
         flex-shrink: 0;
       }
-      #folder-status {
-        margin: 8px 0;
-        font-size: 13px;
-      }
-      .review-footer {
-        flex-shrink: 0;
-        padding: 12px var(--dialog-padding);
-        border-top: 1px solid var(--line);
-      }
-      .review-body {
-        position: relative;
-        min-height: 176px;
-      }
-      #review-loading {
-        position: absolute;
-        inset: 24px 0 auto;
-        text-align: center;
-        background: var(--surface);
-        padding: 8px;
-      }
-      #review-list[aria-busy="true"] {
-        opacity: 0.6;
-        pointer-events: none;
-      }
-      #review-list article {
-        padding: 14px 0;
-      }
-      #review-count {
-        font-variant-numeric: tabular-nums;
-      }
       #report .actions {
         margin-top: 4px;
-      }
-      #sync-coverage dd {
-        text-align: right;
       }
       .choice {
         min-width: 0;
@@ -1406,9 +1374,6 @@
         #filters .choice {
           width: 100%;
         }
-        #progress {
-          flex-wrap: wrap;
-        }
         .gallery {
           grid-template-columns: 1fr;
         }
@@ -1522,23 +1487,43 @@
     <main id="main" tabindex="-1">
       <header class="app-header">
         <h1>Bookmark Library</h1>
-        <div class="actions">
-          <button id="sync" class="quiet icon-button" disabled>
+        <nav class="page-nav" aria-label="Main navigation">
+          <button
+            id="nav-library"
+            class="quiet icon-button"
+            aria-pressed="true"
+          >
             <svg
               class="icon"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
               stroke-width="1.6"
-              stroke-linecap="round"
-              stroke-linejoin="round"
               aria-hidden="true"
             >
-              <path
-                d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"
-              /></svg
-            >Sync</button
-          ><button
+              <path d="M3 4h7v16H3zM14 4h7v16h-7z" /></svg
+            ><span>Library</span>
+          </button>
+          <button
+            id="nav-activity"
+            class="quiet icon-button"
+            aria-pressed="false"
+          >
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="M2 12h4l3-8 5 16 3-8h5" /></svg
+            ><span>Activity</span
+            ><span class="activity-dot" aria-hidden="true"></span>
+          </button>
+        </nav>
+        <div class="actions">
+          <button
             id="settings"
             class="quiet icon-only"
             aria-label="Settings"
@@ -1579,15 +1564,6 @@
         >
           ×
         </button>
-        <div id="progress" hidden>
-          <span id="progress-text"></span>
-          <div class="actions">
-            <button id="process-imported" hidden>Process bookmarks</button>
-            <button id="issues">Review</button
-            ><button id="manage-runs">Manage</button
-            ><button id="pause">Pause</button>
-          </div>
-        </div>
       </aside>
       <form id="search-form" class="search" role="search">
         <svg
@@ -1657,7 +1633,8 @@
                 <circle cx="15" cy="7" r="2" />
                 <circle cx="9" cy="17" r="2" /></svg
               ><span class="label">Filters</span></button
-            ><span id="count" class="muted"></span>
+            ><span id="count" class="muted"></span
+            ><span id="library-refresh-slot"></span>
           </div>
           <div class="view-switch" role="group" aria-label="Library view">
             <button
@@ -1924,13 +1901,7 @@
           </section>
           <section class="setting">
             <h3>Processing</h3>
-            <p id="processing-state" class="muted"></p>
-            <button id="settings-runs" class="quiet" hidden>View runs</button>
-            <button id="browser-recovery" hidden>
-              Recover pages in ChatGPT
-            </button>
             <p id="description-cooldown" class="muted" role="status" hidden></p>
-            <button id="open-processing">Process saved bookmarks</button>
             <details class="processing-options">
               <summary>Advanced</summary>
               <p id="preferences-feedback" class="muted" role="status">
@@ -1997,168 +1968,6 @@
             </div>
           </section>
           <p id="settings-version" class="muted"></p>
-        </div>
-      </dialog>
-      <dialog id="issues-dialog" aria-labelledby="issues-heading">
-        <div class="dialog-header">
-          <h2 id="issues-heading">Processing details</h2>
-          <button
-            class="quiet icon-only icon-button"
-            data-close="issues-dialog"
-            aria-label="Close processing details"
-          >
-            <svg
-              class="icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-              aria-hidden="true"
-            >
-              <path d="m6 6 12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-        <div class="dialog-body">
-          <div class="feedback error" role="alert" data-error hidden></div>
-          <div class="feedback" role="status" data-notice hidden></div>
-          <div class="review-toolbar">
-            <div class="view-switch" role="group" aria-label="Processing view">
-              <button id="review-issues" aria-pressed="true">Issues</button
-              ><button id="review-runs" aria-pressed="false">Runs</button>
-            </div>
-            <button id="review-refresh" class="quiet">Refresh</button>
-          </div>
-          <div class="review-body">
-            <div id="review-list" class="issues" aria-busy="false"></div>
-            <p id="review-empty" class="muted" hidden></p>
-            <p id="review-loading" class="muted" role="status" hidden></p>
-          </div>
-        </div>
-        <div class="review-footer">
-          <span
-            id="review-count"
-            class="muted"
-            role="status"
-            tabindex="-1"
-          ></span>
-          <div class="actions">
-            <button id="review-prev" class="quiet" disabled>Previous</button
-            ><button id="review-next" class="quiet" disabled>Next</button>
-          </div>
-        </div>
-      </dialog>
-      <dialog id="sync-dialog" aria-labelledby="sync-heading">
-        <div class="dialog-header">
-          <h2 id="sync-heading">Import bookmarks</h2>
-          <button
-            class="quiet icon-only icon-button"
-            data-close="sync-dialog"
-            aria-label="Close import"
-          >
-            <svg
-              class="icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-              aria-hidden="true"
-            >
-              <path d="m6 6 12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-        <div class="dialog-body">
-          <div class="feedback error" role="alert" data-error hidden></div>
-          <div class="feedback" role="status" data-notice hidden></div>
-          <dl id="sync-coverage" class="storage-list"></dl>
-          <p class="muted">X may not return all older bookmarks.</p>
-          <div id="import-connect" hidden>
-            <p id="import-connect-message" class="muted"></p>
-            <button id="import-connect-x" class="primary">Connect X</button>
-          </div>
-          <div id="import-controls">
-            <p class="muted">
-              Uses X credits. Media processing starts separately.
-            </p>
-            <div class="processing-grid">
-              <div>
-                <label id="import-items-label" for="import-items-trigger"
-                  >Bookmarks this run</label
-                >
-                <div id="import-items" class="choice"></div>
-              </div>
-              <div>
-                <label id="import-x-limit-label" for="import-x-limit-trigger"
-                  >X API calls</label
-                >
-                <div id="import-x-limit" class="choice"></div>
-              </div>
-            </div>
-            <p class="muted">
-              Pauses at either limit. One API call can return many posts; this
-              is not a spending cap.
-            </p>
-            <div class="actions">
-              <button id="sync-new" class="primary">Import bookmarks</button
-              ><button id="sync-full">Recheck from newest</button>
-            </div>
-          </div>
-        </div>
-      </dialog>
-      <dialog id="processing-dialog" aria-labelledby="processing-heading">
-        <div class="dialog-header">
-          <h2 id="processing-heading">Process saved bookmarks</h2>
-          <button
-            class="quiet icon-only icon-button"
-            data-close="processing-dialog"
-            aria-label="Close processing"
-          >
-            <svg
-              class="icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-              aria-hidden="true"
-            >
-              <path d="m6 6 12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-        <div class="dialog-body">
-          <div class="feedback error" role="alert" data-error hidden></div>
-          <div class="feedback" role="status" data-notice hidden></div>
-          <p id="processing-scope"></p>
-          <p class="muted">
-            Capture context, linked pages and media for these bookmarks. Paused
-            runs stay paused.
-          </p>
-          <div class="processing-grid">
-            <div>
-              <label id="process-x-limit-label" for="process-x-limit-trigger"
-                >X API calls</label
-              >
-              <div id="process-x-limit" class="choice"></div>
-            </div>
-            <div>
-              <label
-                id="process-description-limit-label"
-                for="process-description-limit-trigger"
-                >Image descriptions</label
-              >
-              <div id="process-description-limit" class="choice"></div>
-            </div>
-          </div>
-          <p class="muted">
-            Pauses at either limit. X calls use credits; image descriptions use
-            your ChatGPT plan. Videos are processed locally.
-          </p>
-          <div class="actions">
-            <button id="start-processing" class="primary">
-              Start processing
-            </button>
-          </div>
         </div>
       </dialog>
       <dialog id="disconnect-dialog" aria-labelledby="disconnect-heading">

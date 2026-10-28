@@ -1,3 +1,4 @@
+import { Activity } from "./activity.js";
 import { clearTweets, renderTweets, type PostCard } from "./tweet.js";
 import { Choice } from "./choice.js";
 import { renderMarkdown } from "./markdown.js";
@@ -7,7 +8,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.7.15" };
+const appInfo = { name: "Bookmark Library", version: "0.8.0" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
@@ -35,10 +36,6 @@ for (const [id, values, suffix] of [
   ["description-workers", [0, 1, 2, 3, 4], ""],
   ["video-height", [240, 360, 480, 720, 1080], "p"],
   ["cache-gib", [4, 8, 16, 32, 64, 128], " GiB"],
-  ["import-items", [100, 500, 1000, 0], ""],
-  ["import-x-limit", [25, 100, 500, 1000, 0], ""],
-  ["process-x-limit", [25, 100, 500, 1000, 0], ""],
-  ["process-description-limit", [25, 100, 500, 1000, 0], ""],
 ] as const) {
   choices.set(
     id,
@@ -223,7 +220,10 @@ let loadedQuery = "",
   refreshing = false;
 let loadFailure:
   { message: string; detail: string; reset: boolean } | undefined;
-const initializedLimits = new Set<string>();
+let page: "library" | "activity" = "library";
+let libraryPageScroll = 0;
+let readerOrigin: "library" | "activity" = "library";
+let activity: Activity;
 let returnItem = "",
   currentMatch = "";
 let availableModels: { value: string; label: string }[] = [],
@@ -325,7 +325,6 @@ async function act(fn: () => Promise<void>, button?: HTMLButtonElement) {
     if (button) {
       button.disabled = false;
       button.removeAttribute("aria-busy");
-      if (root.id === "sync-dialog") renderImportAccess();
       if (
         restoreFocus &&
         document.activeElement === document.body &&
@@ -333,18 +332,6 @@ async function act(fn: () => Promise<void>, button?: HTMLButtonElement) {
         !button.closest("[hidden]")
       )
         button.focus({ preventScroll: true });
-      else if (
-        restoreFocus &&
-        document.activeElement === document.body &&
-        !button.isConnected &&
-        button.dataset.run &&
-        dialog("issues-dialog").open
-      ) {
-        const replacement = $("review-list").querySelector<HTMLButtonElement>(
-          `[data-run-id="${CSS.escape(button.dataset.run)}"] button`,
-        );
-        (replacement || $("review-count")).focus({ preventScroll: true });
-      }
     }
   }
 }
@@ -354,38 +341,16 @@ function action(id: string, fn: () => Promise<void>) {
 }
 function showDialog(id: string) {
   closeFilters();
+  activity?.closePopovers();
   const d = dialog(id);
   for (const e of d.querySelectorAll<HTMLElement>(
     "[data-error], [data-notice]",
   ))
     e.hidden = true;
   for (const c of choices.values()) c.close();
-  if (id === "sync-dialog" && !initializedLimits.has(id)) {
-    setChoiceValue("import-items", 100);
-    setChoiceValue("import-x-limit", state?.preferences?.x_requests ?? 100);
-  }
-  if (id === "sync-dialog") renderImportAccess();
-  if (id === "processing-dialog") {
-    renderProcessingScope();
-  }
-  if (id === "processing-dialog" && !initializedLimits.has(id)) {
-    setChoiceValue("process-x-limit", state?.preferences?.x_requests ?? 100);
-    setChoiceValue(
-      "process-description-limit",
-      state?.preferences?.description_requests ?? 100,
-    );
-  }
-  initializedLimits.add(id);
   d.showModal();
   d.querySelector<HTMLElement>(".dialog-body")!.scrollTop = 0;
   if (id === "settings-dialog") void loadModels();
-}
-function renderProcessingScope() {
-  const pending = state?.unprocessed || 0;
-  $("processing-scope").textContent = pending
-    ? `${count(pending)} ready to process`
-    : "No bookmarks waiting to process.";
-  ($("start-processing") as HTMLButtonElement).disabled = !pending;
 }
 async function openUrl(url: string) {
   if (!/^https?:\/\//.test(url))
@@ -514,154 +479,6 @@ const stateLabel = (s: string) =>
       running: "Processing",
     }) as Record<string, string>
   )[s] || s;
-function runHtml(r: Run) {
-  const active = r.state === "running" && !state?.paused;
-  const b = r.limits,
-    limited = !!b?.reason;
-  const usage = b
-    ? `<p class="muted">X requests ${number(b.x_used)} / ${b.x_limit ? number(b.x_limit) : "unlimited"}${r.media_processing ? ` · Image descriptions ${number(b.description_used)} / ${b.description_limit ? number(b.description_limit) : "unlimited"}` : ""}</p>`
-    : "";
-  return `<article class="run" data-run-id="${esc(r.id)}"><p class="run-title">${esc(r.label)}${r.items ? " · " + count(r.items) : ""}</p><p class="muted">${esc(date(r.created))} · ${r.state === "complete" ? "Complete" : limited ? "Limit reached" : active ? "Running" : "Paused"}</p>${usage}<div class="actions">${limited ? `<button data-extend="${esc(b!.reason)}" data-run="${esc(r.id)}">Add 100 ${b!.reason === "items" ? "bookmarks" : b!.reason === "x" ? "X requests" : "image descriptions"}</button>` : r.pending_steps ? `<button data-action="${active ? "pause" : "resume"}" data-run="${esc(r.id)}">${active ? "Pause" : "Resume"}</button>` : ""}${r.retryable_steps && !limited ? `<button data-action="retry" data-run="${esc(r.id)}">Retry ${count(r.retryable_steps, "step")}</button>` : ""}</div></article>`;
-}
-type ReviewItem = {
-  key: string;
-  item: string;
-  run: string;
-  title: string;
-  author: string;
-  error: string;
-  state: string;
-  steps: number;
-  kinds: string[];
-  retryable: number;
-  browser: boolean;
-  account: boolean;
-  next_at?: number;
-};
-let reviewView: "issues" | "runs" = "issues",
-  reviewOffset = 0,
-  reviewRequest = 0;
-let reviewNext: number | null = null;
-async function loadReview(offset = 0) {
-  const request = ++reviewRequest,
-    view = reviewView;
-  const focus = document.activeElement;
-  const pageChanged = offset !== reviewOffset;
-  $("review-list").setAttribute("aria-busy", "true");
-  $("review-list").inert = true;
-  $("review-empty").hidden = true;
-  $("review-loading").textContent =
-    view === "runs" ? "Loading runs…" : "Loading issues…";
-  $("review-loading").hidden = false;
-  for (const id of ["review-prev", "review-next"])
-    ($(id) as HTMLButtonElement).disabled = true;
-  try {
-    const r = await call("processing_details", { view, offset, limit: 20 });
-    if (request !== reviewRequest) return;
-    reviewOffset = r.offset;
-    reviewNext = r.next_offset;
-    $("review-list").innerHTML =
-      view === "runs"
-        ? r.items.map(runHtml).join("")
-        : r.items
-            .map(
-              (g: ReviewItem) =>
-                `<article><p class="issue-title">${esc(g.author ? "@" + g.author + " · " : "")}${esc(g.title)}</p><p class="muted">${esc(stateLabel(g.state))} · ${count(g.steps, "step")}</p><p class="muted">${esc(g.kinds.map(stageLabel).join(" · "))}</p>${g.error ? `<p>${esc(issueText(g.error))}</p>` : ""}<div class="actions">${g.item ? `<button data-item="${esc(g.item)}">Open bookmark</button>` : ""}${g.account || g.error?.startsWith("temporary_") ? "<button data-settings>Open settings</button>" : ""}${g.browser ? "<button data-recovery>Recover pages</button>" : ""}${g.retryable && !g.account ? `<button data-action="retry" data-item-retry="${esc(g.item)}" data-run="${esc(g.run)}">Retry failed steps</button>` : ""}</div></article>`,
-            )
-            .join("");
-    $("review-empty").hidden = r.total > 0;
-    $("review-empty").textContent =
-      view === "runs" ? "No processing runs yet." : "No processing issues.";
-    $("review-count").textContent = r.total
-      ? `${r.offset + 1}–${r.offset + r.items.length} of ${number(r.total)}`
-      : "";
-    if (pageChanged)
-      dialog("issues-dialog").querySelector<HTMLElement>(
-        ".dialog-body",
-      )!.scrollTop = 0;
-    for (const button of $("review-list").querySelectorAll<HTMLButtonElement>(
-      "button",
-    ))
-      button.onclick = () =>
-        void act(async () => {
-          if (button.dataset.extend) {
-            await call("extend_run", {
-              run: button.dataset.run,
-              kind: button.dataset.extend,
-              amount: 100,
-            });
-            await refresh();
-            await loadReview(reviewOffset);
-            feedback("notice", "Limit increased. Resume when ready.");
-          } else if (button.dataset.item) {
-            dialog("issues-dialog").close();
-            await openItem(button.dataset.item);
-          } else if (button.hasAttribute("data-settings")) {
-            dialog("issues-dialog").close();
-            showDialog("settings-dialog");
-          } else if (button.hasAttribute("data-recovery"))
-            await draft(recoveryPrompt);
-          else {
-            const action = button.dataset.action!,
-              item = button.dataset.itemRetry;
-            const r = await call("queue_control", {
-              action,
-              ...(item ? { item } : { run: button.dataset.run }),
-            });
-            if (action === "retry") retryNotice(r);
-            else
-              feedback(
-                "notice",
-                action === "resume"
-                  ? "Run resumed."
-                  : "Pausing after the current step.",
-              );
-            await refresh();
-            await loadReview(reviewOffset);
-          }
-        }, button);
-  } finally {
-    if (request === reviewRequest) {
-      $("review-list").setAttribute("aria-busy", "false");
-      $("review-list").inert = false;
-      $("review-loading").hidden = true;
-      ($("review-prev") as HTMLButtonElement).disabled = reviewOffset === 0;
-      ($("review-next") as HTMLButtonElement).disabled = reviewNext === null;
-      if (
-        focus instanceof HTMLButtonElement &&
-        ["review-prev", "review-next"].includes(focus.id) &&
-        (document.activeElement === focus ||
-          document.activeElement === document.body)
-      )
-        $("review-count").focus({ preventScroll: true });
-    }
-  }
-}
-function openReview(view: "issues" | "runs") {
-  if (view === reviewView && dialog("issues-dialog").open) return;
-  if (view !== reviewView) {
-    $("review-list").replaceChildren();
-    $("review-count").textContent = "";
-    $("review-empty").hidden = true;
-    reviewOffset = 0;
-    reviewNext = null;
-    dialog("issues-dialog").querySelector<HTMLElement>(
-      ".dialog-body",
-    )!.scrollTop = 0;
-  }
-  reviewView = view;
-  for (const name of ["issues", "runs"])
-    $("review-" + name).setAttribute("aria-pressed", String(name === view));
-  if (!dialog("issues-dialog").open) showDialog("issues-dialog");
-  void act(() => loadReview());
-}
-function inventoryLabel() {
-  const latest = state?.last_inventory;
-  if (latest?.partial_pages || latest?.unavailable_records)
-    return "Last import incomplete";
-  if (state?.full_inventory_at) return "Available bookmarks imported";
-  return state?.total ? "Not fully imported" : "Not imported yet";
-}
 function renderCount() {
   if (loading) return;
   if (loadFailure && !rows.length) {
@@ -683,8 +500,6 @@ function renderCoverage() {
       : folders
         ? "Partially synced"
         : "Not synced";
-  $("sync-coverage").innerHTML =
-    `<div><dt>Saved locally</dt><dd>${number(state?.total)}</dd></div><div><dt>Import status</dt><dd>${esc(inventoryLabel())}</dd></div><div><dt>Folders</dt><dd>${esc(label)}</dd></div>${state?.full_inventory_at ? `<div><dt>Last checked</dt><dd>${esc(date(state.full_inventory_at))}</dd></div>` : ""}`;
   $("folder-status").textContent =
     choice("folder").options.length > 1
       ? folders?.complete
@@ -695,43 +510,16 @@ function renderCoverage() {
         : label;
   $("folder-status").hidden = !$("folder-status").textContent;
   $("folder").hidden = choice("folder").options.length < 2;
-  $("sync-new").textContent = state?.full_inventory_at
-    ? "Sync new bookmarks"
-    : "Import bookmarks";
-  $("sync-full").hidden = !state?.full_inventory_at;
-  renderImportAccess();
   renderCount();
-}
-function renderImportAccess() {
-  const connected = !!state?.connected;
-  if (connected && !$("import-connect").hidden) {
-    feedback("notice", "", dialog("sync-dialog"));
-  }
-  $("import-connect").hidden = connected;
-  $("import-controls").hidden = !connected;
-  $("import-connect-message").textContent = state?.x_auth_error
-    ? "Sign in to X again to import bookmarks."
-    : "Connect your X account to import bookmarks.";
-  $("import-connect-x").textContent = state?.x_auth_error
-    ? "Sign in to X"
-    : "Connect X";
-  for (const id of ["sync-new", "sync-full", "import-connect-x"]) {
-    const button = $(id) as HTMLButtonElement;
-    button.disabled =
-      !serviceOnline ||
-      button.hasAttribute("aria-busy") ||
-      (id !== "import-connect-x" && !connected);
-  }
 }
 function connection(online: boolean) {
   serviceOnline = online;
-  renderImportAccess();
+  activity?.setOnline(online);
   $("connection-status").hidden = online;
   $("connection-message").textContent = state
     ? "Connection lost · Showing saved view"
     : "Library service unavailable";
   $("settings-connection").hidden = online;
-  ($("sync") as HTMLButtonElement).disabled = !online;
 }
 function modelAccount(s = state) {
   return s?.chatgpt.connected && s.chatgpt.plan_enabled
@@ -838,39 +626,20 @@ function renderState(s: State) {
     $("refresh-content").hidden = false;
   librarySignature = signature;
   state = s;
-  for (const id of ["sync", "settings"])
-    ($(id) as HTMLButtonElement).disabled = false;
+  ($("settings") as HTMLButtonElement).disabled = false;
   const p = s.progress;
-  $("progress").hidden = !(
-    p.unfinished ||
-    p.unavailable ||
-    p.syncs ||
-    s.unprocessed
-  );
-  const parts = [`${number(s.searchable)} of ${count(s.total)} searchable`];
-  if (s.unprocessed) parts.push(`${number(s.unprocessed)} ready to process`);
-  if (p.unfinished_media)
-    parts.push(`${count(p.unfinished_media)} with unfinished media`);
-  else if (p.unfinished)
-    parts.push(`${count(p.unfinished)} with unfinished work`);
-  if (p.needs_attention)
-    parts.push(`${number(p.needs_attention)} need attention`);
-  if (p.unavailable)
-    parts.push(`${number(p.unavailable)} with unavailable sources`);
-  if (p.syncs)
-    parts.push(
-      p.sync_attention
-        ? "Sync needs attention"
-        : s.paused || !p.sync_running
-          ? "Sync paused"
-          : "Sync in progress",
-    );
-  $("progress-text").textContent =
-    `${s.paused && (p.unfinished || p.syncs) ? "Paused · " : ""}${parts.join(" · ")}`;
-  $("pause").hidden = s.paused || !s.running_run_count;
-  $("issues").hidden = !s.processing_issue_count;
-  $("manage-runs").hidden = !s.run_count;
-  $("process-imported").hidden = !s.unprocessed;
+  const activityState =
+    p.needs_attention || p.sync_attention
+      ? "Needs attention"
+      : !s.paused && s.running_run_count
+        ? "Running"
+        : s.unprocessed || p.unfinished || p.syncs
+          ? "Waiting"
+          : "Up to date";
+  $("nav-activity").dataset.state = activityState;
+  $("nav-activity").setAttribute("aria-label", `Activity, ${activityState}`);
+  $("nav-activity").title = activityState;
+  activity?.setState(s);
   $("x-account").textContent = s.connected
     ? s.account?.username
       ? `@${s.account.username}`
@@ -934,17 +703,6 @@ function renderState(s: State) {
   renderModel();
   if (modelsState === "idle" && dialog("settings-dialog").open)
     void loadModels();
-  $("browser-recovery").hidden = !s.stage_counts.some(
-    (x) => x.state === "browser" && x.count,
-  );
-  $("processing-state").textContent =
-    !s.paused && s.running_run_count
-      ? "Running"
-      : p.unfinished || p.syncs
-        ? "Paused"
-        : s.unprocessed
-          ? `${count(s.unprocessed)} ready to process`
-          : "Nothing waiting";
   if (!changingPreferences && s.preferences) {
     for (const [id, key] of [
       ["cache-gib", "cache_gib"],
@@ -961,11 +719,6 @@ function renderState(s: State) {
   $("description-cooldown").textContent = cooldown
     ? `Image descriptions waiting until ${new Date(cooldown * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Local processing can continue.`
     : "";
-  ($("open-processing") as HTMLButtonElement).disabled = !s.unprocessed;
-  if (dialog("processing-dialog").open) renderProcessingScope();
-  $("settings-runs").hidden = !s.run_count;
-  $("settings-runs").textContent =
-    `View ${number(s.run_count)} ${s.run_count === 1 ? "run" : "runs"}`;
   renderCoverage();
   renderEmptyState();
 }
@@ -1138,8 +891,9 @@ async function load(reset = true, focusAfter?: "search" | "more") {
     renderFilters();
     renderList();
     if (reset) $("library-scroll").scrollTop = 0;
-    if (focusAfter === "search") $("query").focus({ preventScroll: true });
-    if (focusAfter === "more" && next === null) {
+    if (page === "library" && focusAfter === "search")
+      $("query").focus({ preventScroll: true });
+    if (page === "library" && focusAfter === "more" && next === null) {
       const firstNew = $("results").children[previousLength] as
         HTMLElement | undefined;
       (firstNew || $("library-scroll")).focus({ preventScroll: true });
@@ -1342,6 +1096,7 @@ function renderEmptyState() {
 }
 async function openItem(id: string, evidenceId?: string) {
   closeFilters();
+  readerOrigin = page;
   const request = ++detailEpoch;
   const card = Array.from($("results").children).find(
     (e) => (e as HTMLElement).dataset.id === id,
@@ -1351,9 +1106,18 @@ async function openItem(id: string, evidenceId?: string) {
   try {
     const detail = await call("detail", { item: id, evidence_id: evidenceId });
     if (request !== detailEpoch) return;
-    scroll = $("library-scroll").scrollTop;
+    scroll =
+      page === "activity" ? libraryPageScroll : $("library-scroll").scrollTop;
     returnItem = id;
     selected = detail;
+    if (page === "activity") showPage("library");
+    $("back").querySelector(".label")!.textContent =
+      readerOrigin === "activity" ? "Activity" : "Library";
+    $("back").setAttribute(
+      "aria-label",
+      `Back to ${readerOrigin === "activity" ? "Activity" : "Library"}`,
+    );
+    $("search-form").hidden = true;
     currentMatch = evidenceId || "";
     $("list").hidden = true;
     $("detail").hidden = false;
@@ -1698,21 +1462,29 @@ action("empty-action", async () => {
   else if (choice("folder").value) {
     choice("folder").value = "";
     await load();
-  } else showDialog(state?.connected ? "sync-dialog" : "settings-dialog");
+  } else showPage("activity");
 });
 function showLibrary(restoreFocus = true) {
   detailEpoch++;
   $("detail").hidden = true;
   clearTweets($("detail-text"));
   $("list").hidden = false;
+  $("search-form").hidden = false;
   selected = undefined;
   const card = Array.from($("results").children).find(
     (e) => (e as HTMLElement).dataset.id === returnItem,
   ) as HTMLElement;
   if (restoreFocus) (card || $("query")).focus({ preventScroll: true });
   $("library-scroll").scrollTop = scroll;
+  libraryPageScroll = scroll;
 }
-$("back").onclick = () => showLibrary();
+$("back").onclick = () => {
+  if (readerOrigin === "activity") {
+    showLibrary(false);
+    showPage("activity");
+    activity.focusItem(returnItem);
+  } else showLibrary();
+};
 action("use", () =>
   draft(
     `Use my saved bookmark bookmark://item/${selected?.id}. Read its saved evidence and source coverage before making claims. Help me apply the useful ideas.`,
@@ -1731,69 +1503,27 @@ for (const details of $("settings-dialog").querySelectorAll("details")) {
       section.scrollIntoView({ block: "nearest" });
   });
 }
-$("issues").onclick = () => openReview("issues");
-$("manage-runs").onclick = () => openReview("runs");
-$("settings-runs").onclick = () => {
-  dialog("settings-dialog").close();
-  openReview("runs");
-};
-$("review-issues").onclick = () => openReview("issues");
-$("review-runs").onclick = () => openReview("runs");
-$("review-prev").onclick = () =>
-  void act(() => loadReview(Math.max(0, reviewOffset - 20)));
-$("review-next").onclick = () =>
-  void act(() => loadReview(reviewNext ?? reviewOffset));
-action("review-refresh", () => loadReview(reviewOffset));
 action("retry-connection", refresh);
-$("sync").onclick = () => showDialog("sync-dialog");
-for (const [id, mode] of [
-  ["sync-new", "new"],
-  ["sync-full", "full"],
-])
-  action(id, async () => {
-    if (!state?.connected || !serviceOnline) {
-      renderImportAccess();
-      return;
-    }
-    await call("sync", {
-      mode,
-      process: false,
-      limits: {
-        items: Number(choice("import-items").value),
-        x_requests: Number(choice("import-x-limit").value),
-      },
-    });
-    dialog("sync-dialog").close();
-    await refresh();
-  });
-action("pause", async () => {
-  await call("queue_control", { action: "pause" });
-  await refresh();
-  feedback("notice", "Processing will pause after its current step.");
-});
-$("open-processing").onclick = () => {
-  dialog("settings-dialog").close();
-  showDialog("processing-dialog");
-};
-$("process-imported").onclick = () => showDialog("processing-dialog");
-action("start-processing", async () => {
-  const result = await call("process_saved", {
-    mode: "repair",
-    scope: "pending",
-    limits: {
-      x_requests: Number(choice("process-x-limit").value),
-      description_requests: Number(choice("process-description-limit").value),
-    },
-  });
-  dialog("processing-dialog").close();
-  await refresh();
-  feedback(
-    "notice",
-    result.queued
-      ? `Processing ${count(result.queued)}.`
-      : "No bookmarks waiting to process.",
-  );
-});
+function showPage(next: "library" | "activity") {
+  if (page === next) return;
+  if (page === "library" && !selected)
+    libraryPageScroll = $("library-scroll").scrollTop;
+  closeFilters();
+  detailEpoch++;
+  page = next;
+  $("nav-library").setAttribute("aria-pressed", String(next === "library"));
+  $("nav-activity").setAttribute("aria-pressed", String(next === "activity"));
+  $("search-form").hidden = next !== "library" || !!selected;
+  $("list").hidden = next !== "library" || !!selected;
+  $("detail").hidden = next !== "library" || !selected;
+  if (next === "activity") activity.show();
+  else {
+    activity.hide();
+    if (!selected) $("library-scroll").scrollTop = libraryPageScroll;
+  }
+}
+$("nav-library").onclick = () => showPage("library");
+$("nav-activity").onclick = () => showPage("activity");
 const processingChoices = [
   ["cache-gib", "cache_gib"],
   ["local-workers", "local_workers"],
@@ -1846,7 +1576,6 @@ async function connectX() {
   feedback("notice", "Finish signing in in your browser.");
 }
 action("connect-x", connectX);
-action("import-connect-x", connectX);
 action("connect-chatgpt", async () => {
   const r = await call("connect_chatgpt", { account: state?.chatgpt.active });
   await openUrl(r.url);
@@ -1935,7 +1664,7 @@ action("confirm-disconnect", async () => {
 });
 action("usage", () => openUrl("https://chatgpt.com/settings/usage"));
 let report: { path: string; name: string; blob: string } | undefined;
-action("export", async () => {
+async function exportReport() {
   report = await call("export_diagnostics");
   $("report").hidden = false;
   $("report-message").textContent = "Report ready. Nothing sent.";
@@ -1944,7 +1673,8 @@ action("export", async () => {
   if ($("report-open").hidden && $("report-save").hidden)
     $("report-message").textContent =
       "Report saved on this Mac. Copy its path to open it in Finder.";
-});
+}
+action("export", exportReport);
 action("report-open", async () => {
   if (report && extensions.files) await extensions.files.open(report.path);
 });
@@ -1972,7 +1702,6 @@ action("report-copy", async () => {
     $("report-message").textContent = "File path copied.";
   }
 });
-action("browser-recovery", () => draft(recoveryPrompt));
 action("draft-copy", async () => {
   const request = $("draft-request") as HTMLTextAreaElement;
   const status = $("draft-copy-status");
@@ -2057,10 +1786,10 @@ for (const b of document.querySelectorAll<HTMLButtonElement>("[data-close]"))
   b.onclick = () => dismissDialog(dialog(b.dataset.close!));
 const refreshButton = document.createElement("button");
 refreshButton.id = "refresh-content";
-refreshButton.className = "small-link";
-refreshButton.textContent = "Saved content updated · Refresh";
+refreshButton.className = "quiet";
+refreshButton.textContent = "Refresh saved view";
 refreshButton.hidden = true;
-$("notice").after(refreshButton);
+$("library-refresh-slot").append(refreshButton);
 $("dismiss-feedback").onclick = () => {
   feedback("error", "", $("main"));
   feedback("notice", "", $("main"));
@@ -2100,7 +1829,13 @@ function theme(ctx: ReturnType<App["getHostContext"]>) {
 }
 // Reserve the same scrollbar space in the shared chrome and both content views.
 const scrollbars = new ResizeObserver(() => {
-  const port = $(selected ? "reader-scroll" : "library-scroll");
+  const port = $(
+    page === "activity"
+      ? "activity-scroll"
+      : selected
+        ? "reader-scroll"
+        : "library-scroll",
+  );
   document.documentElement.style.setProperty(
     "--scrollbar-size",
     `${port.offsetWidth - port.clientWidth}px`,
@@ -2108,6 +1843,28 @@ const scrollbars = new ResizeObserver(() => {
 });
 scrollbars.observe($("library-scroll"));
 scrollbars.observe($("reader-scroll"));
+activity = new Activity({
+  call,
+  act,
+  refresh,
+  openBookmark: openItem,
+  settings: () => showDialog("settings-dialog"),
+  recover: (item) =>
+    draft(
+      recoveryPrompt +
+        (item ? ` Recover only pages for bookmark ${item}.` : ""),
+    ),
+  export: async () => {
+    showDialog("settings-dialog");
+    await exportReport();
+    $("report").scrollIntoView({ block: "nearest" });
+  },
+  escape: esc,
+  issue: issueText,
+  stage: stageLabel,
+  preview: previewUrl,
+});
+scrollbars.observe($("activity-scroll"));
 app.addEventListener("hostcontextchanged", theme);
 app.ontoolresult = (r) => {
   if (
@@ -2126,6 +1883,7 @@ setInterval(() => {
   if (!document.hidden && !refreshing) {
     refreshing = true;
     void refresh()
+      .then(() => activity.poll())
       .catch(() => {})
       .finally(() => {
         refreshing = false;

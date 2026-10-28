@@ -120,6 +120,36 @@ def checkpoint(c, job, payload):
     )
 
 
+def continue_import(args):
+    """Grant an explicit additional allowance without losing the saved page/cursor."""
+    from controls import validate_limits
+    x_limit, _, items = validate_limits(args.get('limits'))
+    if not config().get('account'):
+        raise RuntimeError('Connect X first.')
+    run = args['run']
+    with db() as c:
+        c.execute('BEGIN IMMEDIATE')
+        job = c.execute("SELECT * FROM jobs WHERE run=? AND kind='sync' AND state NOT IN ('complete','cancelled')", (run,)).fetchone()
+        if not job:
+            raise ValueError('This import is finished. Start a new import.')
+        active = c.execute('SELECT state FROM runs WHERE id=?', (run,)).fetchone()
+        if job['state'] == 'running' or (active and active[0] == 'running' and not setting('paused', True)):
+            raise ValueError('Pause this import before changing its limits.')
+        payload = json.loads(job['payload'])
+        if payload.get('process'):
+            raise ValueError('This run also processes media. Manage it from Activity history.')
+        budget = c.execute('SELECT * FROM run_limits WHERE run=?', (run,)).fetchone()
+        if not budget:
+            __import__('controls').create(c, run)
+            budget = c.execute('SELECT * FROM run_limits WHERE run=?', (run,)).fetchone()
+        c.execute("UPDATE run_limits SET item_limit=?,x_limit=?,reason='' WHERE run=?",
+            (int(payload.get('returned', 0))+items if items else 0, budget['x_used']+x_limit if x_limit else 0, run))
+        c.execute("UPDATE jobs SET state='queued',attempts=0,error=NULL,next_at=0 WHERE id=? AND state='failed'", (job['id'],))
+    __import__('pipeline').authorize(run)
+    WAKE.set()
+    return {'run': run, 'resumed': True, 'started': True, 'process': False}
+
+
 def scan_page(run, path, args, cursor=None, seen=(), folder=False, lookup_ids=None):
     from store import atomic, fingerprint
     from sources import cached_json, page_data, unavailable_posts
@@ -439,7 +469,7 @@ def process_saved(mode="rebuild", item=None, limits=None, scope="all"):
     return {"queued": queued, "mode": mode, "scope": scope, "run": run if queued else None, "network_allowed": mode != "rebuild"}
 
 
-def control(action, run=None, item=None):
+def control(action, run=None, item=None, failed_only=False):
     if action == "pause":
         if run:
             with db() as c:
@@ -454,7 +484,7 @@ def control(action, run=None, item=None):
     elif action == "retry":
         if not run and not item:
             raise ValueError("Select the run or bookmark to retry.")
-        result = __import__("pipeline").retry(item, run)
+        result = __import__("pipeline").retry(item, run, failed_only)
         WAKE.set()
         return {"action": action, **result}
     else:

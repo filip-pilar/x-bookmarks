@@ -38,7 +38,7 @@ if args.archive:
     required = {base + ".agents/plugins/marketplace.json", base + "SETUP_PROMPT.md", base + "UPDATE_PROMPT.md", base + "KNOWN_ISSUES.md", base + "ARCHITECTURE.md"}
     required.update(prefix + name for name in (
         "LICENSE", ".codex-plugin/plugin.json", ".mcp.json", "package.json",
-        "dist/server.mjs", "dist/panel.html", "scripts/build-native.py", "scripts/native.swift", "scripts/preflight.py",
+        "src/activity.ts", "src/activity.css", "python/activity.py", "dist/server.mjs", "dist/panel.html", "scripts/build-native.py", "scripts/native.swift", "scripts/preflight.py",
         "vendor/transcribe/runtime/Package.swift", "vendor/transcribe/runtime/Package.resolved",
         "vendor/transcribe/runtime/Sources/TranscribeAudio/main.swift",
         "scripts/setup.py", "scripts/verify-description.py", "scripts/diagnostics.py", "scripts/launch.sh", "skills/setup/SKILL.md",

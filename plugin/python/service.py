@@ -123,7 +123,7 @@ class Handler(BaseHTTPRequestHandler):
                 "process_saved": lambda: jobs.process_saved(
                     args.get("mode", "rebuild"), args.get("item"), args.get('limits'), args.get('scope', 'all')
                 ),
-                "control": lambda: jobs.control(args["action"], args.get("run"), args.get("item")),
+                "control": lambda: jobs.control(args["action"], args.get("run"), args.get("item"), args.get('failed_only', False)),
                 "connect": xapi.begin,
                 "disconnect": xapi.disconnect,
                 "search": lambda: search_async(args),
@@ -141,6 +141,9 @@ class Handler(BaseHTTPRequestHandler):
                 "aggregate": lambda: library.aggregate(args),
                 "diagnostics": diagnostics.export_report,
                 "processing_details": lambda: __import__("processing").page(args),
+                "activity": lambda: __import__("activity").page(args),
+                "activity_item": lambda: __import__("activity").details(args),
+                "continue_import": lambda: jobs.continue_import(args),
                 "processing_settings": lambda: __import__('controls').configure(args),
                 "extend_run": lambda: __import__('controls').extend(args),
                 "browser_pending": lambda: pages.pending(args.get("limit", 20)),

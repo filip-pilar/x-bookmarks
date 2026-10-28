@@ -35,6 +35,7 @@ def migrate(c):
         c.execute("INSERT OR REPLACE INTO settings VALUES ('paused','true')")
     c.execute("UPDATE stages SET state='queued' WHERE state='running'")
     c.execute("CREATE INDEX IF NOT EXISTS jobs_run ON jobs(run)")
+    c.execute("CREATE INDEX IF NOT EXISTS jobs_item_state ON jobs(item,kind,state)")
     __import__('controls').migrate(c)
     # Startup owns the service lock. Recompute reservations from retained bytes when work resumes.
     c.execute('DELETE FROM media_reservations')
@@ -568,14 +569,15 @@ def loop(lane, worker=0):
             WAKE.clear()
 
 
-def retry(item=None, run=None):
+def retry(item=None, run=None, failed_only=False):
     if not item and not run:
         raise ValueError("Select an item or run to retry.")
     new_run = uuid.uuid4().hex
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
         where, value = ("item=?", item) if item else ("run=?", run)
-        stages = c.execute(f"UPDATE stages SET state='queued',attempts=0,next_at=0,error=NULL,run=? WHERE {where} AND state IN ('failed','waiting','blocked')", (new_run, value)).rowcount
+        states = "('failed','blocked')" if failed_only else "('failed','waiting','blocked')"
+        stages = c.execute(f"UPDATE stages SET state='queued',attempts=0,next_at=0,error=NULL,run=? WHERE {where} AND state IN {states}", (new_run, value)).rowcount
         jobs = c.execute(f"UPDATE jobs SET state='queued',attempts=0,next_at=0,error=NULL,run=? WHERE {where} AND state='failed' AND NOT EXISTS(SELECT 1 FROM jobs active WHERE active.kind=jobs.kind AND active.item=jobs.item AND active.state IN ('queued','running','waiting'))", (new_run, value)).rowcount
     if stages or jobs:
         authorize(new_run)
