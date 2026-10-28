@@ -111,7 +111,9 @@ export class Choice {
     const modal = this.element.closest("dialog");
     const container =
       modal || this.element.closest("[popover]") || document.body;
-    const boundary = modal || document.getElementById("library-scroll");
+    const boundary =
+      this.element.closest(".dialog-body") ||
+      document.getElementById("library-scroll");
     this.root.render(
       h(
         Select.Root,

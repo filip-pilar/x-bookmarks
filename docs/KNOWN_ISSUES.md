@@ -1,6 +1,12 @@
 # Verification and remaining limitations
 
-Version 0.7.12 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.13 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.13 dialog scrolling
+
+All six dialogs separate their fixed header from an independently scrolling body; run-history pagination stays outside that body too. Dropdowns are bounded to the body. Expanding a Settings section brings its heading into view when the complete section fits. The shared layout uses explicit insets and dividers instead of overlapping sticky content.
+
+In the isolated built-panel host, actual pointer opening/selection and both successful and rejected settings saves kept the Processing heading fully visible and body scroll unchanged. Desktop and 390×560 dark checks covered header/body bounds, reachable dropdowns, run-history footer separation and account-disconnect cancellation. The outer dialog stayed at scrollTop 0. These checks use a substituted desktop host; an already-open panel still needs reopening after installation. No real import, processing or account change ran.
 
 ## Verified for 0.7.12 interaction recovery
 
@@ -18,7 +24,7 @@ Actual pointer movement and mouse press/release in the built-panel harness verif
 
 ## Verified for 0.7.10 interaction stability
 
-Dialogs keep a fixed top anchor as Advanced, feedback or cooldown content changes. Their sticky headings cover the top edge while scrolling. The library and reader reserve constant end space for the feedback dock; clearing it no longer changes scroll height. Import labels describe a bounded run, and API-call limits explain their relation to posts and spending.
+Dialogs keep a fixed top anchor as Advanced, feedback or cooldown content changes. The library and reader reserve constant end space for the feedback dock; clearing it no longer changes scroll height. Import labels describe a bounded run, and API-call limits explain their relation to posts and spending.
 
 Normal UI processing uses a shared pending-item condition for status and queue selection. In an isolated ten-item SQLite library, one eligible item queued exactly once across two concurrent requests; completed bookmarks and existing paused/failed jobs stayed untouched. Explicit item rebuild remained available. An empty pending action left the library paused. No worker or provider ran in this rehearsal.
 

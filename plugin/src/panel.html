@@ -883,7 +883,6 @@
       dialog {
         --dialog-top: max(16px, min(6svh, 56px), var(--host-top, 0px));
         --dialog-padding: 24px;
-        scroll-padding-block: 64px 24px;
         width: min(580px, calc(100vw - 28px));
         max-height: calc(
           100svh - var(--dialog-top) - max(100px, var(--host-bottom, 0px))
@@ -891,9 +890,8 @@
         margin: 0 auto;
         top: var(--dialog-top);
         bottom: auto;
-        overflow: auto;
-        overscroll-behavior: contain;
-        padding: var(--dialog-padding);
+        overflow: hidden;
+        padding: 0;
         border: 1px solid var(--line);
         border-radius: 14px;
         box-shadow: 0 16px 60px #00000026;
@@ -903,12 +901,31 @@
       dialog::backdrop {
         background: #0003;
       }
+      dialog[open] {
+        display: flex;
+        flex-direction: column;
+      }
       .dialog-header {
         display: flex;
+        flex-shrink: 0;
         justify-content: space-between;
         align-items: center;
         gap: 12px;
-        margin-bottom: 18px;
+        padding: 18px var(--dialog-padding);
+        border-bottom: 1px solid var(--line);
+      }
+      .dialog-body {
+        min-height: 0;
+        margin-block: 12px;
+        overflow: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+        scroll-padding-block: 16px;
+        padding: 4px var(--dialog-padding) 12px;
+      }
+      .dialog-body > .setting:first-of-type {
+        border-top: 0;
+        padding-top: 0;
       }
       .setting {
         padding: 18px 0;
@@ -1049,11 +1066,8 @@
         font-size: 13px;
       }
       .review-footer {
-        position: sticky;
-        bottom: calc(-1 * var(--dialog-padding));
-        background: var(--surface);
-        padding: 12px 0 var(--dialog-padding);
-        margin-bottom: calc(-1 * var(--dialog-padding));
+        flex-shrink: 0;
+        padding: 12px var(--dialog-padding);
         border-top: 1px solid var(--line);
       }
       .review-body {
@@ -1299,14 +1313,6 @@
         margin: 0;
         font-variant-numeric: tabular-nums;
         text-align: right;
-      }
-      .dialog-header {
-        position: sticky;
-        top: calc(-1 * var(--dialog-padding));
-        z-index: 2;
-        background: var(--surface);
-        padding-block: var(--dialog-padding) 12px;
-        margin-top: calc(-1 * var(--dialog-padding));
       }
       button:not(.bookmark)[aria-busy="true"] {
         position: relative;
@@ -1809,141 +1815,147 @@
             </svg>
           </button>
         </div>
-        <div class="feedback error" role="alert" data-error hidden></div>
-        <div class="feedback" role="status" data-notice hidden></div>
-        <p id="settings-connection" role="status" class="muted" hidden>
-          Connection lost. Status may be out of date.
-        </p>
-        <section class="setting">
-          <div class="setting-heading">
-            <div>
-              <h3>X account</h3>
-              <p id="x-account" class="muted"></p>
-            </div>
-            <button id="connect-x">Connect X</button>
-          </div>
-        </section>
-        <section class="setting">
-          <div class="setting-heading">
-            <div>
-              <h3>ChatGPT</h3>
-              <p id="chatgpt-state" class="muted"></p>
-            </div>
-            <button id="usage" class="quiet" hidden>View usage ↗</button>
-          </div>
-          <p class="muted">
-            Image descriptions use your ChatGPT plan. Videos use local
-            transcription, OCR and embeddings.
+        <div class="dialog-body">
+          <div class="feedback error" role="alert" data-error hidden></div>
+          <div class="feedback" role="status" data-notice hidden></div>
+          <p id="settings-connection" role="status" class="muted" hidden>
+            Connection lost. Status may be out of date.
           </p>
-          <button id="connect-chatgpt">Connect ChatGPT</button>
-          <div id="description-settings" hidden>
-            <div class="model-row">
-              <label id="model-label" for="model-trigger"
-                >Description model</label
-              >
-              <div id="model" class="choice" hidden></div>
-              <output
-                id="model-current"
-                aria-labelledby="model-label"
-                tabindex="-1"
-              ></output>
-            </div>
-            <div id="model-feedback" hidden>
-              <span id="model-message" class="muted" role="status"></span>
-              <button id="retry-models" class="quiet" hidden>Try again</button>
-            </div>
-          </div>
-          <details id="account-settings" hidden>
-            <summary>Manage account</summary>
-            <div id="account-picker" hidden>
-              <label id="chatgpt-account-label" for="chatgpt-account-trigger"
-                >Account</label
-              >
-              <div id="chatgpt-account" class="choice"></div>
-            </div>
-            <div class="account-actions">
-              <button id="reconnect-chatgpt" class="quiet">
-                Sign in again
-              </button>
-              <button id="disconnect-chatgpt" class="quiet danger-action">
-                Disconnect
-              </button>
-            </div>
-          </details>
-        </section>
-        <section class="setting">
-          <h3>Processing</h3>
-          <p id="processing-state" class="muted"></p>
-          <button id="settings-runs" class="quiet" hidden>View runs</button>
-          <button id="browser-recovery" hidden>Recover pages in ChatGPT</button>
-          <p id="description-cooldown" class="muted" role="status" hidden></p>
-          <button id="open-processing">Process saved bookmarks</button>
-          <details class="processing-options">
-            <summary>Advanced</summary>
-            <p id="preferences-feedback" class="muted" role="status">
-              Changes save automatically.
-            </p>
-            <div class="processing-grid">
+          <section class="setting">
+            <div class="setting-heading">
               <div>
-                <label id="local-workers-label" for="local-workers-trigger"
-                  >Local workers</label
-                >
-                <div id="local-workers" class="choice"></div>
+                <h3>X account</h3>
+                <p id="x-account" class="muted"></p>
               </div>
+              <button id="connect-x">Connect X</button>
+            </div>
+          </section>
+          <section class="setting">
+            <div class="setting-heading">
               <div>
-                <label
-                  id="description-workers-label"
-                  for="description-workers-trigger"
-                  >Description workers</label
-                >
-                <div id="description-workers" class="choice"></div>
+                <h3>ChatGPT</h3>
+                <p id="chatgpt-state" class="muted"></p>
               </div>
-              <div>
-                <label id="video-height-label" for="video-height-trigger"
-                  >Video resolution</label
-                >
-                <div id="video-height" class="choice"></div>
-              </div>
-              <div>
-                <label id="cache-gib-label" for="cache-gib-trigger"
-                  >Temporary space</label
-                >
-                <div id="cache-gib" class="choice"></div>
-              </div>
+              <button id="usage" class="quiet" hidden>View usage ↗</button>
             </div>
             <p class="muted">
-              Higher resolution preserves small text. Temporary space excludes
-              models and saved evidence; processing also keeps 2 GiB free on
-              disk.
+              Image descriptions use your ChatGPT plan. Videos use local
+              transcription, OCR and embeddings.
             </p>
-          </details>
-        </section>
-        <section class="setting">
-          <details>
-            <summary>Storage</summary>
-            <dl id="storage" class="storage-list"></dl>
-            <p class="muted">
-              Text and embeddings stay saved. Temporary media is removed after
-              processing; existing originals are kept.
-            </p>
-          </details>
-        </section>
-        <section class="setting">
-          <h3>Support</h3>
-          <p class="muted">
-            Error details without bookmark content or credentials.
-          </p>
-          <button id="export">Export diagnostics</button>
-          <div id="report" hidden>
-            <p id="report-message" class="muted" role="status"></p>
-            <div class="actions">
-              <button id="report-save">Download ZIP</button
-              ><button id="report-open" class="quiet" hidden>Open file</button
-              ><button id="report-copy" class="quiet">Copy file path</button>
+            <button id="connect-chatgpt">Connect ChatGPT</button>
+            <div id="description-settings" hidden>
+              <div class="model-row">
+                <label id="model-label" for="model-trigger"
+                  >Description model</label
+                >
+                <div id="model" class="choice" hidden></div>
+                <output
+                  id="model-current"
+                  aria-labelledby="model-label"
+                  tabindex="-1"
+                ></output>
+              </div>
+              <div id="model-feedback" hidden>
+                <span id="model-message" class="muted" role="status"></span>
+                <button id="retry-models" class="quiet" hidden>
+                  Try again
+                </button>
+              </div>
             </div>
-          </div>
-        </section>
-        <p id="settings-version" class="muted"></p>
+            <details id="account-settings" hidden>
+              <summary>Manage account</summary>
+              <div id="account-picker" hidden>
+                <label id="chatgpt-account-label" for="chatgpt-account-trigger"
+                  >Account</label
+                >
+                <div id="chatgpt-account" class="choice"></div>
+              </div>
+              <div class="account-actions">
+                <button id="reconnect-chatgpt" class="quiet">
+                  Sign in again
+                </button>
+                <button id="disconnect-chatgpt" class="quiet danger-action">
+                  Disconnect
+                </button>
+              </div>
+            </details>
+          </section>
+          <section class="setting">
+            <h3>Processing</h3>
+            <p id="processing-state" class="muted"></p>
+            <button id="settings-runs" class="quiet" hidden>View runs</button>
+            <button id="browser-recovery" hidden>
+              Recover pages in ChatGPT
+            </button>
+            <p id="description-cooldown" class="muted" role="status" hidden></p>
+            <button id="open-processing">Process saved bookmarks</button>
+            <details class="processing-options">
+              <summary>Advanced</summary>
+              <p id="preferences-feedback" class="muted" role="status">
+                Changes save automatically.
+              </p>
+              <div class="processing-grid">
+                <div>
+                  <label id="local-workers-label" for="local-workers-trigger"
+                    >Local workers</label
+                  >
+                  <div id="local-workers" class="choice"></div>
+                </div>
+                <div>
+                  <label
+                    id="description-workers-label"
+                    for="description-workers-trigger"
+                    >Description workers</label
+                  >
+                  <div id="description-workers" class="choice"></div>
+                </div>
+                <div>
+                  <label id="video-height-label" for="video-height-trigger"
+                    >Video resolution</label
+                  >
+                  <div id="video-height" class="choice"></div>
+                </div>
+                <div>
+                  <label id="cache-gib-label" for="cache-gib-trigger"
+                    >Temporary space</label
+                  >
+                  <div id="cache-gib" class="choice"></div>
+                </div>
+              </div>
+              <p class="muted">
+                Higher resolution preserves small text. Temporary space excludes
+                models and saved evidence; processing also keeps 2 GiB free on
+                disk.
+              </p>
+            </details>
+          </section>
+          <section class="setting">
+            <details>
+              <summary>Storage</summary>
+              <dl id="storage" class="storage-list"></dl>
+              <p class="muted">
+                Text and embeddings stay saved. Temporary media is removed after
+                processing; existing originals are kept.
+              </p>
+            </details>
+          </section>
+          <section class="setting">
+            <h3>Support</h3>
+            <p class="muted">
+              Error details without bookmark content or credentials.
+            </p>
+            <button id="export">Export diagnostics</button>
+            <div id="report" hidden>
+              <p id="report-message" class="muted" role="status"></p>
+              <div class="actions">
+                <button id="report-save">Download ZIP</button
+                ><button id="report-open" class="quiet" hidden>Open file</button
+                ><button id="report-copy" class="quiet">Copy file path</button>
+              </div>
+            </div>
+          </section>
+          <p id="settings-version" class="muted"></p>
+        </div>
       </dialog>
       <dialog id="issues-dialog" aria-labelledby="issues-heading">
         <div class="dialog-header">
@@ -1965,19 +1977,21 @@
             </svg>
           </button>
         </div>
-        <div class="feedback error" role="alert" data-error hidden></div>
-        <div class="feedback" role="status" data-notice hidden></div>
-        <div class="review-toolbar">
-          <div class="view-switch" role="group" aria-label="Processing view">
-            <button id="review-issues" aria-pressed="true">Issues</button
-            ><button id="review-runs" aria-pressed="false">Runs</button>
+        <div class="dialog-body">
+          <div class="feedback error" role="alert" data-error hidden></div>
+          <div class="feedback" role="status" data-notice hidden></div>
+          <div class="review-toolbar">
+            <div class="view-switch" role="group" aria-label="Processing view">
+              <button id="review-issues" aria-pressed="true">Issues</button
+              ><button id="review-runs" aria-pressed="false">Runs</button>
+            </div>
+            <button id="review-refresh" class="quiet">Refresh</button>
           </div>
-          <button id="review-refresh" class="quiet">Refresh</button>
-        </div>
-        <div class="review-body">
-          <div id="review-list" class="issues" aria-busy="false"></div>
-          <p id="review-empty" class="muted" hidden></p>
-          <p id="review-loading" class="muted" role="status" hidden></p>
+          <div class="review-body">
+            <div id="review-list" class="issues" aria-busy="false"></div>
+            <p id="review-empty" class="muted" hidden></p>
+            <p id="review-loading" class="muted" role="status" hidden></p>
+          </div>
         </div>
         <div class="review-footer">
           <span
@@ -2012,35 +2026,39 @@
             </svg>
           </button>
         </div>
-        <div class="feedback error" role="alert" data-error hidden></div>
-        <div class="feedback" role="status" data-notice hidden></div>
-        <dl id="sync-coverage" class="storage-list"></dl>
-        <p class="muted">
-          Coverage reflects what X’s API returned, not every historical
-          bookmark.
-        </p>
-        <p class="muted">Uses X credits. Media processing starts separately.</p>
-        <div class="processing-grid">
-          <div>
-            <label id="import-items-label" for="import-items-trigger"
-              >Bookmarks this run</label
-            >
-            <div id="import-items" class="choice"></div>
+        <div class="dialog-body">
+          <div class="feedback error" role="alert" data-error hidden></div>
+          <div class="feedback" role="status" data-notice hidden></div>
+          <dl id="sync-coverage" class="storage-list"></dl>
+          <p class="muted">
+            Coverage reflects what X’s API returned, not every historical
+            bookmark.
+          </p>
+          <p class="muted">
+            Uses X credits. Media processing starts separately.
+          </p>
+          <div class="processing-grid">
+            <div>
+              <label id="import-items-label" for="import-items-trigger"
+                >Bookmarks this run</label
+              >
+              <div id="import-items" class="choice"></div>
+            </div>
+            <div>
+              <label id="import-x-limit-label" for="import-x-limit-trigger"
+                >X API calls</label
+              >
+              <div id="import-x-limit" class="choice"></div>
+            </div>
           </div>
-          <div>
-            <label id="import-x-limit-label" for="import-x-limit-trigger"
-              >X API calls</label
-            >
-            <div id="import-x-limit" class="choice"></div>
+          <p class="muted">
+            Pauses at either limit. One API call can return many posts; this is
+            not a spending cap.
+          </p>
+          <div class="actions">
+            <button id="sync-new" class="primary">Import bookmarks</button
+            ><button id="sync-full">Recheck from newest</button>
           </div>
-        </div>
-        <p class="muted">
-          Pauses at either limit. One API call can return many posts; this is
-          not a spending cap.
-        </p>
-        <div class="actions">
-          <button id="sync-new" class="primary">Import bookmarks</button
-          ><button id="sync-full">Recheck from newest</button>
         </div>
       </dialog>
       <dialog id="processing-dialog" aria-labelledby="processing-heading">
@@ -2063,37 +2081,39 @@
             </svg>
           </button>
         </div>
-        <div class="feedback error" role="alert" data-error hidden></div>
-        <div class="feedback" role="status" data-notice hidden></div>
-        <p id="processing-scope"></p>
-        <p class="muted">
-          Capture context, linked pages and media for these bookmarks. Paused
-          runs stay paused.
-        </p>
-        <div class="processing-grid">
-          <div>
-            <label id="process-x-limit-label" for="process-x-limit-trigger"
-              >X API calls</label
-            >
-            <div id="process-x-limit" class="choice"></div>
+        <div class="dialog-body">
+          <div class="feedback error" role="alert" data-error hidden></div>
+          <div class="feedback" role="status" data-notice hidden></div>
+          <p id="processing-scope"></p>
+          <p class="muted">
+            Capture context, linked pages and media for these bookmarks. Paused
+            runs stay paused.
+          </p>
+          <div class="processing-grid">
+            <div>
+              <label id="process-x-limit-label" for="process-x-limit-trigger"
+                >X API calls</label
+              >
+              <div id="process-x-limit" class="choice"></div>
+            </div>
+            <div>
+              <label
+                id="process-description-limit-label"
+                for="process-description-limit-trigger"
+                >Image descriptions</label
+              >
+              <div id="process-description-limit" class="choice"></div>
+            </div>
           </div>
-          <div>
-            <label
-              id="process-description-limit-label"
-              for="process-description-limit-trigger"
-              >Image descriptions</label
-            >
-            <div id="process-description-limit" class="choice"></div>
+          <p class="muted">
+            Pauses at either limit. X calls use credits; image descriptions use
+            your ChatGPT plan. Videos are processed locally.
+          </p>
+          <div class="actions">
+            <button id="start-processing" class="primary">
+              Start processing
+            </button>
           </div>
-        </div>
-        <p class="muted">
-          Pauses at either limit. X calls use credits; image descriptions use
-          your ChatGPT plan. Videos are processed locally.
-        </p>
-        <div class="actions">
-          <button id="start-processing" class="primary">
-            Start processing
-          </button>
         </div>
       </dialog>
       <dialog id="disconnect-dialog" aria-labelledby="disconnect-heading">
@@ -2116,17 +2136,19 @@
             </svg>
           </button>
         </div>
-        <div class="feedback error" role="alert" data-error hidden></div>
-        <p id="disconnect-account"></p>
-        <p class="muted">
-          New image descriptions will need a connection. Your saved bookmarks
-          stay available.
-        </p>
-        <div class="actions">
-          <button data-close="disconnect-dialog">Keep connected</button>
-          <button id="confirm-disconnect" class="danger-action">
-            Disconnect
-          </button>
+        <div class="dialog-body">
+          <div class="feedback error" role="alert" data-error hidden></div>
+          <p id="disconnect-account"></p>
+          <p class="muted">
+            New image descriptions will need a connection. Your saved bookmarks
+            stay available.
+          </p>
+          <div class="actions">
+            <button data-close="disconnect-dialog">Keep connected</button>
+            <button id="confirm-disconnect" class="danger-action">
+              Disconnect
+            </button>
+          </div>
         </div>
       </dialog>
       <dialog id="clear-dialog" aria-labelledby="clear-heading">
@@ -2149,16 +2171,18 @@
             </svg>
           </button>
         </div>
-        <div class="feedback error" role="alert" data-error hidden></div>
-        <p id="clear-explanation"></p>
-        <p class="muted">
-          Saved text and embeddings stay available. Retrying these steps will
-          need to download their media again, which may use X credits. Existing
-          originals are preserved.
-        </p>
-        <div class="actions">
-          <button id="confirm-clear">Clear temporary media</button
-          ><button data-close="clear-dialog">Cancel</button>
+        <div class="dialog-body">
+          <div class="feedback error" role="alert" data-error hidden></div>
+          <p id="clear-explanation"></p>
+          <p class="muted">
+            Saved text and embeddings stay available. Retrying these steps will
+            need to download their media again, which may use X credits.
+            Existing originals are preserved.
+          </p>
+          <div class="actions">
+            <button id="confirm-clear">Clear temporary media</button
+            ><button data-close="clear-dialog">Cancel</button>
+          </div>
         </div>
       </dialog>
     </main>

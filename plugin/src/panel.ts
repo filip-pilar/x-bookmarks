@@ -7,7 +7,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.7.12" };
+const appInfo = { name: "Bookmark Library", version: "0.7.13" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
@@ -373,7 +373,7 @@ function showDialog(id: string) {
   }
   initializedLimits.add(id);
   d.showModal();
-  d.scrollTop = 0;
+  d.querySelector<HTMLElement>(".dialog-body")!.scrollTop = 0;
   if (id === "settings-dialog") void loadModels();
 }
 function renderProcessingScope() {
@@ -568,7 +568,10 @@ async function loadReview(offset = 0) {
     $("review-count").textContent = r.total
       ? `${r.offset + 1}–${r.offset + r.items.length} of ${number(r.total)}`
       : "";
-    if (pageChanged) dialog("issues-dialog").scrollTop = 0;
+    if (pageChanged)
+      dialog("issues-dialog").querySelector<HTMLElement>(
+        ".dialog-body",
+      )!.scrollTop = 0;
     for (const button of $("review-list").querySelectorAll<HTMLButtonElement>(
       "button",
     ))
@@ -635,7 +638,9 @@ function openReview(view: "issues" | "runs") {
     $("review-empty").hidden = true;
     reviewOffset = 0;
     reviewNext = null;
-    dialog("issues-dialog").scrollTop = 0;
+    dialog("issues-dialog").querySelector<HTMLElement>(
+      ".dialog-body",
+    )!.scrollTop = 0;
   }
   reviewView = view;
   for (const name of ["issues", "runs"])
@@ -1686,6 +1691,16 @@ action("use", () =>
 $("source").setAttribute("data-source", "");
 wireLinks($("detail"));
 $("settings").onclick = () => showDialog("settings-dialog");
+for (const details of $("settings-dialog").querySelectorAll("details")) {
+  details.addEventListener("toggle", () => {
+    if (!details.open || !dialog("settings-dialog").open) return;
+    const section = details.closest<HTMLElement>(".setting")!,
+      body = details.closest<HTMLElement>(".dialog-body")!;
+    // Reveal the complete section when it fits, including its heading.
+    if (section.offsetHeight <= body.clientHeight)
+      section.scrollIntoView({ block: "nearest" });
+  });
+}
 $("issues").onclick = () => openReview("issues");
 $("manage-runs").onclick = () => openReview("runs");
 $("settings-runs").onclick = () => {
