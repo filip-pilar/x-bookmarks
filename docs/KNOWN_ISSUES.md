@@ -1,6 +1,14 @@
 # Verification and remaining limitations
 
-Version 0.7.13 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.7.14 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.7.14 prerequisites and fallbacks
+
+Import presents Connect X or Sign in to X when authorization is missing, and hides the run controls until connected. Opening sign-in does not start an import. Service loss disables import actions while retaining the saved view.
+
+Hosts without direct ChatGPT handoff receive a request dialog with Copy request, explicit confirmation and a selectable-text fallback if clipboard access fails. Account and model saves show feedback beside the changed control, reserve its space and restore rejected selections without scrolling Settings. A successful selection remains saved when the subsequent status refresh fails; older in-flight status results cannot undo that selection.
+
+The actual built panel in an isolated MCP host verified missing/expired X connection guidance, copying the exact request, a controlled clipboard rejection, account/model rejection with unchanged control positions and scroll, successful selection and saved-selection retention during a controlled status outage. The 390×560 dark copy dialog had no horizontal overflow; its height and button position stayed unchanged on clipboard rejection. Provider responses and host capabilities were controlled; no real sign-in, account change, import or description request ran. Already-open panels need reopening after the local update.
 
 ## Verified for 0.7.13 dialog scrolling
 

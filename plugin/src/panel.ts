@@ -7,7 +7,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.7.13" };
+const appInfo = { name: "Bookmark Library", version: "0.7.14" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
@@ -231,6 +231,8 @@ let availableModels: { value: string; label: string }[] = [],
   modelsLoadedAt = 0,
   modelsRequest = 0,
   changingChatGPT = false;
+let settingsRevision = 0,
+  serviceOnline = false;
 const esc = (s: unknown) =>
   String(s ?? "").replace(
     /[&<>"']/g,
@@ -323,6 +325,7 @@ async function act(fn: () => Promise<void>, button?: HTMLButtonElement) {
     if (button) {
       button.disabled = false;
       button.removeAttribute("aria-busy");
+      if (root.id === "sync-dialog") renderImportAccess();
       if (
         restoreFocus &&
         document.activeElement === document.body &&
@@ -361,6 +364,7 @@ function showDialog(id: string) {
     setChoiceValue("import-items", 100);
     setChoiceValue("import-x-limit", state?.preferences?.x_requests ?? 100);
   }
+  if (id === "sync-dialog") renderImportAccess();
   if (id === "processing-dialog") {
     renderProcessingScope();
   }
@@ -402,7 +406,10 @@ const sourceLink = (url?: string) =>
     : "";
 async function draft(text: string) {
   if (!extensions.message) {
-    feedback("notice", `Copy this request into ChatGPT:\n${text}`);
+    ($("draft-request") as HTMLTextAreaElement).value = text;
+    $("draft-copy-status").textContent = "Paste the request into ChatGPT.";
+    $("draft-copy-status").className = "muted save-feedback";
+    showDialog("draft-dialog");
     return;
   }
   await extensions.message.send({
@@ -697,9 +704,33 @@ function renderCoverage() {
     ? "Sync new bookmarks"
     : "Import bookmarks";
   $("sync-full").hidden = !state?.full_inventory_at;
+  renderImportAccess();
   renderCount();
 }
+function renderImportAccess() {
+  const connected = !!state?.connected;
+  if (connected && !$("import-connect").hidden) {
+    feedback("notice", "", dialog("sync-dialog"));
+  }
+  $("import-connect").hidden = connected;
+  $("import-controls").hidden = !connected;
+  $("import-connect-message").textContent = state?.x_auth_error
+    ? "Sign in to X again to import bookmarks."
+    : "Connect your X account to import bookmarks.";
+  $("import-connect-x").textContent = state?.x_auth_error
+    ? "Sign in to X"
+    : "Connect X";
+  for (const id of ["sync-new", "sync-full", "import-connect-x"]) {
+    const button = $(id) as HTMLButtonElement;
+    button.disabled =
+      !serviceOnline ||
+      button.hasAttribute("aria-busy") ||
+      (id !== "import-connect-x" && !connected);
+  }
+}
 function connection(online: boolean) {
+  serviceOnline = online;
+  renderImportAccess();
   $("connection-status").hidden = online;
   $("connection-message").textContent = state
     ? "Connection lost · Showing saved view"
@@ -802,6 +833,7 @@ async function loadModels(force = false) {
 function renderState(s: State) {
   const accountChanged = modelAccount() !== modelAccount(s);
   if (accountChanged) {
+    $("model-save").textContent = "";
     modelsRequest++;
     modelsState = "idle";
     availableModels = [];
@@ -953,13 +985,16 @@ function retryNotice(r: { retried: number }) {
 const recoveryPrompt =
   "Recover Bookmark Library pages in browser_pending. Use an appropriate existing browser profile; in-app Browser does not share Chrome logins. Read rendered content and save it with browser_capture. Ask me only for personal login/consent. Keep challenges and partial extraction visible. Do not import more bookmarks or follow links inside pages.";
 async function refresh() {
+  const revision = settingsRevision;
   let s: State;
   try {
     s = (await call("status")) as State;
   } catch (error) {
+    if (revision !== settingsRevision) return;
     connection(false);
     throw error;
   }
+  if (revision !== settingsRevision) return;
   renderState(s);
   connection(true);
   const signature = JSON.stringify(s.folder_inventory);
@@ -1721,6 +1756,10 @@ for (const [id, mode] of [
   ["sync-full", "full"],
 ])
   action(id, async () => {
+    if (!state?.connected || !serviceOnline) {
+      renderImportAccess();
+      return;
+    }
     await call("sync", {
       mode,
       process: false,
@@ -1806,10 +1845,13 @@ for (const [id, key] of processingChoices) {
       }
     });
 }
-action("connect-x", async () => {
+async function connectX() {
   const r = await call("connect_x");
   await openUrl(r.url);
-});
+  feedback("notice", "Finish signing in in your browser.");
+}
+action("connect-x", connectX);
+action("import-connect-x", connectX);
 action("connect-chatgpt", async () => {
   const r = await call("connect_chatgpt", { account: state?.chatgpt.active });
   await openUrl(r.url);
@@ -1819,19 +1861,35 @@ async function changeChatGPT(id: "chatgpt-account" | "model") {
     key = id === "model" ? "model" : "account";
   const previous =
     (id === "model" ? state?.chatgpt.model : state?.chatgpt.active) || "";
-  if (!control.value) {
+  const status = $(id + "-save");
+  status.textContent = "Saving…";
+  status.className = "muted save-feedback";
+  status.setAttribute("role", "status");
+  status.title = "";
+  if (!control.value || control.value === previous) {
     control.value = previous;
+    status.textContent = "";
     return;
   }
   changingChatGPT = true;
   choice("chatgpt-account").disabled = true;
   choice("model").disabled = true;
+  let saved = false;
   try {
-    await call("select_chatgpt", { [key]: control.value });
+    const chatgpt = await call("select_chatgpt", { [key]: control.value });
+    saved = true;
+    settingsRevision++;
+    if (state) renderState({ ...state, chatgpt });
     await refresh();
+    status.textContent = "Saved";
   } catch (error) {
-    control.value = previous;
-    throw error;
+    if (!saved) control.value = previous;
+    status.className = (saved ? "muted" : "error") + " save-feedback";
+    status.setAttribute("role", "alert");
+    status.textContent = saved
+      ? "Saved. Connection lost."
+      : "Couldn’t save. Try again.";
+    status.title = (error as Error).message;
   } finally {
     changingChatGPT = false;
     choice("chatgpt-account").disabled = false;
@@ -1849,13 +1907,13 @@ async function changeChatGPT(id: "chatgpt-account" | "model") {
   }
 }
 choice("chatgpt-account").onChange = () =>
-  void act(() => changeChatGPT("chatgpt-account"));
+  void changeChatGPT("chatgpt-account");
 $("retry-models").onclick = () => void loadModels(true);
 action("reconnect-chatgpt", async () => {
   const r = await call("connect_chatgpt", { account: state?.chatgpt.active });
   await openUrl(r.url);
 });
-choice("model").onChange = () => void act(() => changeChatGPT("model"));
+choice("model").onChange = () => void changeChatGPT("model");
 $("disconnect-chatgpt").onclick = () => {
   $("disconnect-account").textContent =
     state?.chatgpt.accounts.find((a) => a.id === state?.chatgpt.active)
@@ -1920,6 +1978,20 @@ action("report-copy", async () => {
   }
 });
 action("browser-recovery", () => draft(recoveryPrompt));
+action("draft-copy", async () => {
+  const request = $("draft-request") as HTMLTextAreaElement;
+  const status = $("draft-copy-status");
+  try {
+    await navigator.clipboard.writeText(request.value);
+    status.textContent = "Copied. Paste into ChatGPT.";
+    status.className = "muted save-feedback";
+  } catch {
+    request.focus({ preventScroll: true });
+    request.select();
+    status.textContent = "Copy blocked. Press ⌘C to copy the selected request.";
+    status.className = "error save-feedback";
+  }
+});
 action("confirm-clear", async () => {
   if (!selected) return;
   const id = selected.id,

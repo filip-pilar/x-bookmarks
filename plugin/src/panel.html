@@ -135,6 +135,7 @@
       }
       button,
       input,
+      textarea,
       .choice-trigger {
         font: inherit;
         color: inherit;
@@ -157,7 +158,7 @@
       button[aria-busy="true"] {
         cursor: progress;
       }
-      :is(button, input, summary, a, [tabindex]):focus-visible {
+      :is(button, input, textarea, summary, a, [tabindex]):focus-visible {
         outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
         outline-offset: 2px;
       }
@@ -1476,8 +1477,34 @@
         display: block;
         margin-bottom: 8px;
       }
-      #preferences-feedback {
+      #preferences-feedback,
+      .save-feedback {
         min-height: 1.55em;
+      }
+      .save-feedback {
+        font-size: 12px;
+        margin: 6px 0 0;
+      }
+      #model-save {
+        text-align: right;
+      }
+      #draft-request {
+        display: block;
+        width: 100%;
+        height: 9em;
+        resize: none;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--soft);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      #draft-copy-status {
+        min-height: 3.2em;
+      }
+      #draft-dialog .actions {
+        margin-top: 16px;
       }
       .processing-options {
         margin-top: 18px;
@@ -1848,13 +1875,19 @@
                 <label id="model-label" for="model-trigger"
                   >Description model</label
                 >
-                <div id="model" class="choice" hidden></div>
+                <div
+                  id="model"
+                  class="choice"
+                  aria-describedby="model-save"
+                  hidden
+                ></div>
                 <output
                   id="model-current"
                   aria-labelledby="model-label"
                   tabindex="-1"
                 ></output>
               </div>
+              <p id="model-save" class="muted save-feedback" role="status"></p>
               <div id="model-feedback" hidden>
                 <span id="model-message" class="muted" role="status"></span>
                 <button id="retry-models" class="quiet" hidden>
@@ -1868,7 +1901,16 @@
                 <label id="chatgpt-account-label" for="chatgpt-account-trigger"
                   >Account</label
                 >
-                <div id="chatgpt-account" class="choice"></div>
+                <div
+                  id="chatgpt-account"
+                  class="choice"
+                  aria-describedby="chatgpt-account-save"
+                ></div>
+                <p
+                  id="chatgpt-account-save"
+                  class="muted save-feedback"
+                  role="status"
+                ></p>
               </div>
               <div class="account-actions">
                 <button id="reconnect-chatgpt" class="quiet">
@@ -2034,30 +2076,36 @@
             Coverage reflects what X’s API returned, not every historical
             bookmark.
           </p>
-          <p class="muted">
-            Uses X credits. Media processing starts separately.
-          </p>
-          <div class="processing-grid">
-            <div>
-              <label id="import-items-label" for="import-items-trigger"
-                >Bookmarks this run</label
-              >
-              <div id="import-items" class="choice"></div>
-            </div>
-            <div>
-              <label id="import-x-limit-label" for="import-x-limit-trigger"
-                >X API calls</label
-              >
-              <div id="import-x-limit" class="choice"></div>
-            </div>
+          <div id="import-connect" hidden>
+            <p id="import-connect-message" class="muted"></p>
+            <button id="import-connect-x" class="primary">Connect X</button>
           </div>
-          <p class="muted">
-            Pauses at either limit. One API call can return many posts; this is
-            not a spending cap.
-          </p>
-          <div class="actions">
-            <button id="sync-new" class="primary">Import bookmarks</button
-            ><button id="sync-full">Recheck from newest</button>
+          <div id="import-controls">
+            <p class="muted">
+              Uses X credits. Media processing starts separately.
+            </p>
+            <div class="processing-grid">
+              <div>
+                <label id="import-items-label" for="import-items-trigger"
+                  >Bookmarks this run</label
+                >
+                <div id="import-items" class="choice"></div>
+              </div>
+              <div>
+                <label id="import-x-limit-label" for="import-x-limit-trigger"
+                  >X API calls</label
+                >
+                <div id="import-x-limit" class="choice"></div>
+              </div>
+            </div>
+            <p class="muted">
+              Pauses at either limit. One API call can return many posts; this
+              is not a spending cap.
+            </p>
+            <div class="actions">
+              <button id="sync-new" class="primary">Import bookmarks</button
+              ><button id="sync-full">Recheck from newest</button>
+            </div>
           </div>
         </div>
       </dialog>
@@ -2147,6 +2195,57 @@
             <button data-close="disconnect-dialog">Keep connected</button>
             <button id="confirm-disconnect" class="danger-action">
               Disconnect
+            </button>
+          </div>
+        </div>
+      </dialog>
+      <dialog id="draft-dialog" aria-labelledby="draft-heading">
+        <div class="dialog-header">
+          <h2 id="draft-heading">Use in ChatGPT</h2>
+          <button
+            class="quiet icon-only icon-button"
+            data-close="draft-dialog"
+            aria-label="Close request"
+          >
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="dialog-body">
+          <label for="draft-request">Request</label>
+          <textarea
+            id="draft-request"
+            readonly
+            spellcheck="false"
+            aria-describedby="draft-copy-status"
+          ></textarea>
+          <p
+            id="draft-copy-status"
+            class="muted save-feedback"
+            role="status"
+          ></p>
+          <div class="actions">
+            <button id="draft-copy" class="primary icon-button">
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                aria-hidden="true"
+              >
+                <rect x="8" y="8" width="12" height="12" rx="2" />
+                <path d="M16 8V4H4v12h4" />
+              </svg>
+              Copy request
             </button>
           </div>
         </div>

@@ -138,6 +138,8 @@ export class Choice {
             className: "choice-trigger",
             title: this.hint,
             "aria-labelledby": `${id}-label ${id}-value`,
+            "aria-describedby":
+              this.element.getAttribute("aria-describedby") || undefined,
           },
           h(Select.Value, { id: `${id}-value` }, this.label),
           h(Select.Icon, { className: "choice-chevron" }, chevron()),
