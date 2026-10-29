@@ -8,7 +8,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.8.1" };
+const appInfo = { name: "Bookmark Library", version: "0.9.0" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
@@ -369,7 +369,7 @@ const sourceLink = (url?: string) =>
   url && /^https?:\/\//.test(url)
     ? `<a class="small-link" data-source href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open source ↗</a>`
     : "";
-async function draft(text: string) {
+async function draft(text: string, send = false) {
   if (!extensions.message) {
     ($("draft-request") as HTMLTextAreaElement).value = text;
     $("draft-copy-status").textContent = "Paste the request into ChatGPT.";
@@ -380,9 +380,12 @@ async function draft(text: string) {
   await extensions.message.send({
     role: "user",
     content: [{ type: "text", text }],
-    _meta: { "openai/message": { target: "active", send: false } },
+    _meta: { "openai/message": { target: "active", send } },
   });
-  feedback("notice", "Request drafted in ChatGPT.");
+  feedback(
+    "notice",
+    send ? "Recovery requested in ChatGPT." : "Request drafted in ChatGPT.",
+  );
 }
 // Skip unchanged DOM and defer replacements while a user is interacting with it.
 function patch(el: HTMLElement, html: string): boolean {
@@ -459,6 +462,24 @@ const issueText = (error: string | null = "") =>
             "The original must be downloaded again before this step can finish.",
           authentication_or_challenge:
             "This page needs browser access or personal sign-in.",
+          public_extraction_incomplete:
+            "Automatic page readers could not capture this page completely.",
+          private_page_access:
+            "This link needs local browser access; it was not sent to page services.",
+          linked_binary_not_a_page:
+            "This link opens a media file rather than a readable page.",
+          source_import_required:
+            "Import missing X details to capture this source.",
+          source_skipped: "Skipped; saved content is kept.",
+          jina_rate_wait: "Waiting for Jina. Other processing continues.",
+          jina_quota_wait:
+            "Jina allowance reached. Retry is scheduled automatically.",
+          tinyfish_daily_wait:
+            "TinyFish’s free daily allowance resets before this resumes.",
+          tinyfish_quota_wait:
+            "Waiting for TinyFish’s allowance; no paid fallback is enabled.",
+          tinyfish_key_rejected:
+            "Update the TinyFish key in Linked page services.",
           incomplete_extraction:
             "The readable page content could not be captured completely.",
           partial_browser_capture:
@@ -730,8 +751,6 @@ function retryNotice(r: { retried: number }) {
       : "No steps currently need a retry.",
   );
 }
-const recoveryPrompt =
-  "Recover Bookmark Library pages in browser_pending. Use an appropriate existing browser profile; in-app Browser does not share Chrome logins. Read rendered content and save it with browser_capture. Ask me only for personal login/consent. Keep challenges and partial extraction visible. Do not import more bookmarks or follow links inside pages.";
 async function refresh() {
   const revision = settingsRevision;
   let s: State;
@@ -1320,7 +1339,7 @@ function renderDetail(preserve = true) {
     )
     .join(
       "",
-    )}${unfinished.length ? `<p class="muted">${count(unfinished.length, "step")} unfinished. Saved evidence is already usable.</p>` : ""}<div class="actions">${d.retryable_steps ? `<button id="detail-retry">Retry ${count(d.retryable_steps, "step")}</button>` : ""}${d.clearable_bytes ? `<button id="clear-temp">Clear ${bytes(d.clearable_bytes)} of failed media…</button>` : ""}${d.stages.some((s) => s.state === "browser") ? '<button id="detail-recovery">Recover pages in ChatGPT</button>' : ""}</div>`;
+    )}${unfinished.length ? `<p class="muted">${count(unfinished.length, "step")} unfinished. Saved evidence is already usable.</p>` : ""}<div class="actions">${d.retryable_steps ? `<button id="detail-retry">Retry ${count(d.retryable_steps, "step")}</button>` : ""}${d.clearable_bytes ? `<button id="clear-temp">Clear ${bytes(d.clearable_bytes)} of failed media…</button>` : ""}${d.stages.some((s) => s.state === "browser") ? '<button id="detail-recovery">Review linked pages</button>' : ""}</div>`;
   if (d.retryable_steps)
     action("detail-retry", async () => {
       retryNotice(await call("queue_control", { action: "retry", item: d.id }));
@@ -1334,7 +1353,9 @@ function renderDetail(preserve = true) {
       showDialog("clear-dialog");
     });
   if (d.stages.some((s) => s.state === "browser"))
-    action("detail-recovery", () => draft(recoveryPrompt));
+    action("detail-recovery", async () => {
+      showPage("activity");
+    });
 }
 async function refreshDetail(id: string, reloadEvidence = false) {
   const request = detailEpoch,
@@ -1848,11 +1869,12 @@ activity = new Activity({
   act,
   refresh,
   openBookmark: openItem,
+  openUrl,
   settings: () => showDialog("settings-dialog"),
-  recover: (item) =>
+  recover: (domain) =>
     draft(
-      recoveryPrompt +
-        (item ? ` Recover only pages for bookmark ${item}.` : ""),
+      `Help capture the remaining linked pages ${domain ? `from ${domain}` : "in Bookmark Library"}. Work through the whole website group, reuse an appropriate browser session, and ask me only when personal sign-in or consent is necessary. Keep unavailable or partial content marked honestly; do not import more bookmarks or follow links inside pages. Use Bookmark Library's browser_pending filter and pagination, then browser_capture to save what you actually read.`,
+      true,
     ),
   export: async () => {
     showDialog("settings-dialog");

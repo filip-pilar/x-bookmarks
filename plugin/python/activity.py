@@ -15,17 +15,19 @@ WORK = """WITH work AS (
  FROM jobs j LEFT JOIN runs r ON r.id=j.run WHERE j.kind='process' AND j.state!='cancelled'
 ), totals AS (
  SELECT item,sum(state='running') AS active,
- sum(state IN ('failed','blocked','browser')) AS attention,
+ sum(state='blocked' OR (state='browser' AND error IN ('private_page_access','paywalled_page','login_or_paywall','authentication_or_challenge'))) AS attention,
+ sum(state='failed' OR (state='browser' AND error NOT IN ('private_page_access','paywalled_page','login_or_paywall','authentication_or_challenge'))) AS failed,
  sum(state IN ('queued','waiting')) AS pending,
  sum(state='waiting' AND run_state='running') AS retrying,
- sum(state='unavailable') AS unavailable
+ sum(state IN ('unavailable','skipped')) AS unavailable
  FROM work GROUP BY item
 ), classified AS (
  SELECT i.id,i.title,i.author,i.url,
  CASE WHEN t.active>0 THEN 'active' WHEN t.attention>0 THEN 'attention'
  WHEN t.retrying>0 AND :paused=0 THEN 'retrying' WHEN t.pending>0 THEN 'waiting'
- WHEN i.processed_hash IS NULL OR i.processed_hash!=i.hash THEN 'waiting'
- WHEN t.unavailable>0 OR i.state='partial' THEN 'partial' ELSE 'complete' END AS status,
+ WHEN t.failed>0 THEN 'partial'
+ WHEN EXISTS(SELECT 1 FROM work_available a WHERE a.item=i.id AND NOT EXISTS(SELECT 1 FROM work_plan p WHERE p.item=i.id AND p.category=a.category AND p.revision=i.hash)) THEN 'waiting'
+ WHEN t.unavailable>0 OR EXISTS(SELECT 1 FROM x_dependencies d WHERE d.item=i.id AND d.state!='complete') THEN 'partial' ELSE 'complete' END AS status,
  coalesce(t.active,0) AS active_steps,coalesce(t.attention,0) AS issues,
  CASE WHEN """ + PENDING_ITEMS + """ THEN 1 ELSE 0 END AS eligible
  FROM items i LEFT JOIN totals t ON t.item=i.id
@@ -35,7 +37,7 @@ WORK = """WITH work AS (
 
 def run_state(c, run, paused):
     result = run_details(c, run)
-    problems = c.execute("SELECT sum(state IN ('failed','blocked','browser')),sum(state='unavailable'),sum(state IN ('failed','blocked')) FROM stages WHERE run=?", (run['id'],)).fetchone()
+    problems = c.execute("SELECT sum(state IN ('failed','blocked','browser')),sum(state IN ('unavailable','skipped')),sum(state IN ('failed','blocked')) FROM stages WHERE run=?", (run['id'],)).fetchone()
     failed_jobs = c.execute("SELECT count(*) FROM jobs WHERE run=? AND state='failed'", (run['id'],)).fetchone()[0]
     result['retryable_steps'] = (problems[2] or 0)+failed_jobs
     result['source_issues'] = (problems[0] or 0)+failed_jobs
@@ -74,7 +76,8 @@ def page(args):
             importing = {**run_state(c, {'id': sync['run'], 'state': sync['run_state'], 'created': sync['run_created']}, paused),
                 'job_state': sync['state'], 'mode': payload.get('mode', 'full'), 'phase': payload.get('phase', 'bookmarks'),
                 'returned': payload.get('returned', 0), 'error': sync['error'], 'next_at': sync['next_at'],
-                'process': bool(payload.get('process')), 'unfinished': sync['state'] not in ('complete','cancelled')}
+                'process': bool(payload.get('process')),
+                'missing_details': c.execute("SELECT count(DISTINCT item) FROM x_dependencies d JOIN items i ON i.id=d.item WHERE i.active=1 AND d.state IN ('pending','missing')").fetchone()[0], 'unfinished': sync['state'] not in ('complete','cancelled')}
         process_where = """
             EXISTS(SELECT 1 FROM jobs j WHERE j.run=r.id AND j.kind='process' AND j.state NOT IN ('complete','cancelled'))
             OR EXISTS(SELECT 1 FROM stages s WHERE s.run=r.id AND s.state IN ('queued','running','waiting','failed','blocked','browser'))
@@ -108,7 +111,8 @@ def page(args):
             visible_items = present(c, c.execute('SELECT * FROM activity_items WHERE id IN ('+','.join(':visible'+str(i) for i in range(len(visible)))+')', params))
         return {'view': view, 'items': items, 'total': total, 'offset': offset,
             'next_offset': offset+limit if offset+limit < total else None,
-            'counts': counts, 'import': importing, 'processing_runs': processing_runs,
+            'counts': counts, 'import': importing,
+            'missing_details': c.execute("SELECT count(DISTINCT item) FROM x_dependencies d JOIN items i ON i.id=d.item WHERE i.active=1 AND d.state IN ('pending','missing')").fetchone()[0], 'processing_runs': processing_runs,
             'processing_run_count': processing_run_count, 'processing_running': processing_running, 'processing_pausing': processing_pausing, 'visible_items': visible_items,
             'paused': paused, 'coverage': saved, 'at': time.time()}
 
@@ -124,7 +128,8 @@ def present(c, rows):
             ) w LEFT JOIN runs r ON r.id=w.run ORDER BY CASE stage_state
             WHEN 'running' THEN 0 WHEN 'blocked' THEN 1 WHEN 'failed' THEN 2 WHEN 'browser' THEN 3
             WHEN 'waiting' THEN 4 WHEN 'queued' THEN 5 WHEN 'unavailable' THEN 6 ELSE 7 END,updated DESC LIMIT 1''', (row['id'],row['id'])).fetchone()
-        result.append({**dict(row), **(dict(work) if work else {}), 'presentation': row_presentation(raw), 'content_types': content_types(raw)})
+        deferred = __import__('workplan').missing(c, c.execute('SELECT * FROM items WHERE id=?', (row['id'],)).fetchone())
+        result.append({'deferred': deferred, **dict(row), **(dict(work) if work else {}), 'presentation': row_presentation(raw), 'content_types': content_types(raw)})
     return result
 
 
@@ -136,4 +141,6 @@ def details(args):
         if not c.execute('SELECT 1 FROM items WHERE id=? AND active=1', (item,)).fetchone():
             raise ValueError('Bookmark is not in this library.')
         rows = c.execute("SELECT * FROM (SELECT kind,state,error,next_at,run,source,id FROM stages WHERE item=? AND state!='cancelled' UNION ALL SELECT 'process',state,error,next_at,run,item,id FROM jobs WHERE item=? AND kind='process' AND state NOT IN ('cancelled','complete')) ORDER BY CASE state WHEN 'running' THEN 0 WHEN 'failed' THEN 1 WHEN 'blocked' THEN 1 WHEN 'browser' THEN 1 ELSE 2 END,kind,source,id LIMIT 31 OFFSET ?", (item, item, offset)).fetchall()
-        return {'item': item, 'stages': [dict(r) for r in rows[:30]], 'next_offset': offset+30 if len(rows)>30 else None}
+        deferred = __import__('workplan').missing(c, c.execute('SELECT * FROM items WHERE id=?', (item,)).fetchone())
+        dependencies = [dict(r) for r in c.execute("SELECT relation,state,error FROM x_dependencies WHERE item=? AND state!='complete'", (item,))]
+        return {'item': item, 'deferred': deferred, 'missing_sources': dependencies, 'stages': [dict(r) for r in rows[:30]], 'next_offset': offset+30 if len(rows)>30 else None}

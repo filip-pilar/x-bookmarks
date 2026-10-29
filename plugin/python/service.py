@@ -121,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
                 "status": lambda: query_status(args),
                 "sync": lambda: jobs.sync(args.get("mode", "new"), args.get('process', False), args.get('limits')),
                 "process_saved": lambda: jobs.process_saved(
-                    args.get("mode", "rebuild"), args.get("item"), args.get('limits'), args.get('scope', 'all')
+                    args.get("mode", "repair"), args.get("item"), args.get('limits'), args.get('scope', 'pending'), args.get('categories'), args.get('content', 'all'), args.get('items')
                 ),
                 "control": lambda: jobs.control(args["action"], args.get("run"), args.get("item"), args.get('failed_only', False)),
                 "connect": xapi.begin,
@@ -146,7 +146,11 @@ class Handler(BaseHTTPRequestHandler):
                 "continue_import": lambda: jobs.continue_import(args),
                 "processing_settings": lambda: __import__('controls').configure(args),
                 "extend_run": lambda: __import__('controls').extend(args),
-                "browser_pending": lambda: pages.pending(args.get("limit", 20)),
+                "browser_pending": lambda: pages.pending(args),
+                "processing_preview": lambda: __import__("workplan").preview(args),
+                "page_services": lambda: __import__("page_providers").settings(args),
+                "page_recovery": lambda: __import__("recovery").control(args),
+                "recovery_groups": lambda: __import__("recovery").groups(args),
                 "browser_capture": lambda: pages.save(args),
                 "chatgpt_connect": lambda: subscription.begin(PORT, args.get("account")),
                 "chatgpt_models": lambda: {"models": subscription.models()},
@@ -183,6 +187,7 @@ if __name__ == "__main__":
         HOME / "service.json",
         {"pid": os.getpid(), "port": PORT, "token": CAPABILITY, "version": VERSION},
     )
+    threading.Thread(target=pipeline.loop, args=("pages", 0), daemon=True).start()
     for kind in ("sync", "process"):
         threading.Thread(target=jobs.loop, args=(kind,), daemon=True).start()
     for lane in ("local", "description"):

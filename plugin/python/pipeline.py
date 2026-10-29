@@ -2,7 +2,7 @@
 import io, json, math, os, shutil, threading, time, uuid
 from pathlib import Path
 from store import HOME, db, atomic, fingerprint, content_fingerprint, setting, set_setting, config
-from sources import policy, checksum, DiskSpaceError, context_request
+from sources import policy, checksum, DiskSpaceError
 
 WAKE = threading.Event()
 CACHE = HOME / "cache/media-v1"
@@ -37,6 +37,15 @@ def migrate(c):
     c.execute("CREATE INDEX IF NOT EXISTS jobs_run ON jobs(run)")
     c.execute("CREATE INDEX IF NOT EXISTS jobs_item_state ON jobs(item,kind,state)")
     __import__('controls').migrate(c)
+    __import__('workplan').migrate(c)
+    __import__('import_sources').migrate(c)
+    __import__('page_providers').migrate(c)
+    if not c.execute("SELECT 1 FROM settings WHERE key='workflow_v2'").fetchone():
+        c.execute("UPDATE runs SET state='paused' WHERE state='running'")
+        c.execute("INSERT OR REPLACE INTO settings VALUES ('paused','true')")
+        c.execute("UPDATE jobs SET payload=json_set(payload,'$.process',json('false')) WHERE kind='sync' AND state NOT IN ('complete','cancelled')")
+        c.execute("UPDATE jobs SET payload=json_set(payload,'$.mode','repair') WHERE kind='process' AND json_extract(payload,'$.mode')='refresh' AND state NOT IN ('complete','cancelled')")
+        c.execute("INSERT INTO settings VALUES ('workflow_v2','true')")
     # Startup owns the service lock. Recompute reservations from retained bytes when work resumes.
     c.execute('DELETE FROM media_reservations')
     # Preserve committed captions; pending video descriptions are no longer required.
@@ -107,10 +116,11 @@ def publish_post(c, item, post, row_title=None):
     publish_text(c, item, source, revision, "text" if source == item else "context", post_text(post), {"url": "https://x.com/i/status/" + source})
 
 
-def queue(c, item, source, kind, revision, payload, run):
+def queue(c, item, source, kind, revision, payload, run, category=None):
     key = fingerprint([item, source, kind, revision])
     c.execute("INSERT INTO stages(id,item,source,kind,revision,run,state,payload,updated) VALUES (?,?,?,?,?,?,'queued',?,?) ON CONFLICT(id) DO NOTHING",
               (key, item, source, kind, revision, run, json.dumps(payload), time.time()))
+    c.execute('UPDATE stages SET category=? WHERE id=?', (category or __import__('workplan').CATEGORY.get(), key))
     return key
 
 
@@ -119,59 +129,53 @@ def media_keys(post):
     return set(post.get("attachments", {}).get("media_keys", [])) | set(article.get("media_entities", [])) | ({article["cover_media"]} if article.get("cover_media") else set())
 
 
-def capture_post(c, item, post, media, run, mode, users=()):
+def capture_post(c, item, post, media, run, mode, users=(), categories=None):
+    categories = set(categories or __import__('workplan').CATEGORIES)
     from context import links
     from urllib.parse import urlsplit
     media = [m for m in media if m.get("media_key") in media_keys(post)]
     c.execute("INSERT OR REPLACE INTO post_presentations VALUES (?,?)", (post["id"], json.dumps({"post": post, "includes": {"media": media, "users": list(users)}})))
     publish_post(c, item, post)
-    snapshot_metrics(c, post, media)
     revision = content_fingerprint(post, media)
-    queue(c, item, post["id"], "text", revision, {}, run)
+    if "text" in categories:
+        queue(c, item, post["id"], "text", revision, {}, run, "text")
     available = {m["media_key"]: m for m in media}
     for key in media_keys(post):
         descriptor = available.get(key)
         if not descriptor:
-            queue(c, item, post["id"], "media_lookup", revision, {"mode": mode}, run)
+            continue
+        category = "images" if descriptor.get("type") == "photo" else "video"
+        if category not in categories:
             continue
         asset = fingerprint([post["id"], key])
         c.execute("INSERT OR IGNORE INTO assets VALUES (?,?,'','pending',0)", (asset, json.dumps(descriptor)))
         if descriptor.get("alt_text"):
             publish_text(c, item, asset, fingerprint(descriptor["alt_text"]), "alt-text", descriptor["alt_text"], {"url": "https://x.com/i/status/" + post["id"], "owner_post": post["id"]})
-            queue(c, item, asset, "text", fingerprint(descriptor["alt_text"]), {}, run)
-        queue(c, item, asset, "download", fingerprint([content_fingerprint({}, [descriptor]), run if mode == "refresh" else ""]), {"media": descriptor, "post": post["id"], "mode": mode}, run)
-    for url in links(post):
+            queue(c, item, asset, "text", fingerprint(descriptor["alt_text"]), {}, run, category)
+        queue(c, item, asset, "download", fingerprint([content_fingerprint({}, [descriptor]), run if mode == "refresh" else ""]), {"media": descriptor, "post": post["id"], "mode": mode}, run, category)
+    for url in links(post) if "pages" in categories else ():
         if urlsplit(url).hostname in ("x.com", "twitter.com", "www.x.com", "www.twitter.com", "t.co"):
             continue
         source = "page:" + fingerprint(url)
-        queue(c, item, source, "page", fingerprint([url, mode == "refresh" and run]), {"url": url, "post": post["id"], "mode": mode}, run)
+        queue(c, item, source, "page", fingerprint([url, mode == "refresh" and run]), {"url": url, "post": post["id"], "mode": mode}, run, "pages")
 
 
-def prepare(item, retry=False, mode="repair", generation=""):
-    from xapi import get, FIELDS
+def prepare(item, retry=False, mode="repair", generation="", categories=None):
+    from workplan import validate, material
+    if mode not in ('rebuild', 'repair'):
+        raise ValueError('Refresh X sources through Import, then process saved content.')
+    categories = validate(categories)
     run = generation or uuid.uuid4().hex
     with db() as c:
-        row = dict(c.execute("SELECT * FROM items WHERE id=?", (item,)).fetchone())
-    raw = json.loads(row["raw"])
-    prepared_hash = row["hash"]
-    if mode == "refresh":
-        with policy(mode, run):
-            result = context_request("/tweets/" + item, FIELDS, get)
-        if not result.get("data") or result.get("errors"):
-            raise RuntimeError("Incomplete refresh; prior evidence retained.")
-        from store import upsert_page
-        with db() as c:
-            upsert_page(c, {**result, "data": [result["data"]]}, run)
-        raw = {"post": result["data"], "includes": result.get("includes", {})}
-        prepared_hash = content_fingerprint(raw["post"], raw["includes"].get("media", []))
-    with db() as c:
-        capture_post(c, item, raw["post"], raw.get("includes", {}).get("media", []), run, mode)
-        for ref in raw["post"].get("referenced_tweets", []):
-            if ref.get("type") in ("replied_to", "quoted"):
-                queue(c, item, ref["id"], "context", fingerprint([ref["id"], mode == "refresh" and run]), {"mode": mode}, run)
-        c.execute("UPDATE items SET processed_hash=?,processor='6',state='processing' WHERE id=?", (prepared_hash, item))
+        row = c.execute('SELECT * FROM items WHERE id=?', (item,)).fetchone()
+        for raw in material(c, row):
+            capture_post(c, item, raw['data'], raw.get('includes', {}).get('media', []), run, mode,
+                         raw.get('includes', {}).get('users', []), categories)
+        c.executemany('INSERT OR REPLACE INTO work_plan VALUES (?,?,?)', [(item, k, row['hash']) for k in categories])
+        c.execute("UPDATE items SET processed_hash=?,processor='7',state='processing' WHERE id=?", (row['hash'], item))
+    refresh_item(item)
     WAKE.set()
-    return {"queued_stages": True}
+    return {'queued_stages': True, 'categories': categories, 'x_requests': 0}
 
 
 def asset_path(asset):
@@ -207,7 +211,8 @@ def refresh_item(item):
     with db() as c:
         counts = {r[0]: r[1] for r in c.execute("SELECT state,count(*) FROM stages WHERE item=? GROUP BY state", (item,))}
         pending = any(counts.get(s) for s in ("queued", "running", "waiting", "blocked", "browser"))
-        state = "processing" if pending else "partial" if counts.get("failed") or counts.get("unavailable") else "ready"
+        deferred = __import__("workplan").missing(c, c.execute("SELECT * FROM items WHERE id=?", (item,)).fetchone())
+        state = "processing" if pending else "partial" if counts.get("failed") or counts.get("unavailable") or counts.get("skipped") or deferred else "ready"
         c.execute("UPDATE items SET state=?,refreshed=? WHERE id=?", (state, time.time(), item))
         from enrichment import source_revision
         c.execute("UPDATE items SET source_revision=? WHERE id=?", (source_revision(c, item), item))
@@ -253,22 +258,18 @@ def execute(stage):
     import numpy as np
     from PIL import Image
     from embedding import encode, FINGERPRINT
-    from xapi import get, FIELDS
     from content import probe, ocr
     item, source, kind, revision, run = (stage[k] for k in ("item", "source", "kind", "revision", "run"))
     p = json.loads(stage["payload"])
     if kind in ("context", "media_lookup"):
-        with policy(p.get("mode", "repair"), run):
-            result = context_request("/tweets/" + source, FIELDS, get)
-        if not result.get("data"):
-            raise SourceUnavailable("source_unavailable")
-        if result.get("errors"):
-            raise RuntimeError("partial_source_response")
-        if kind == "media_lookup" and media_keys(result["data"]) - {m["media_key"] for m in result.get("includes", {}).get("media", [])}:
-            raise RuntimeError("media_expansion_missing")
+        # Legacy queued stages can consume retained context, never make an X call.
         with db() as c:
-            capture_post(c, item, result["data"], result.get("includes", {}).get("media", []), run, p.get("mode", "repair"), result.get("includes", {}).get("users", []))
-        return {"captured": source}
+            result = __import__('import_sources').saved(c, source)
+            if not result:
+                raise SourceUnavailable('source_import_required')
+            capture_post(c, item, result['data'], result.get('includes', {}).get('media', []), run,
+                         p.get('mode', 'repair'), result.get('includes', {}).get('users', []))
+        return {'captured': source, 'x_requests': 0}
     if kind == "text":
         with db() as c:
             rows = c.execute("SELECT * FROM chunks WHERE item=? AND json_extract(metadata,'$.source_id')=? AND text!='' AND (vector IS NULL OR model!=?)", (item, source, FINGERPRINT)).fetchall()
@@ -489,7 +490,7 @@ def work_once(lane="local", worker=0):
             return False
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
-        condition = "s.kind='caption'" if lane == "description" else "s.kind NOT IN ('caption','video_caption')"
+        condition = "s.kind='caption'" if lane == "description" else "s.kind='page'" if lane == "pages" else "s.kind NOT IN ('caption','video_caption','page')"
         condition += " AND NOT EXISTS(SELECT 1 FROM stages busy WHERE busy.state='running' AND busy.source=s.source AND busy.kind=s.kind)"
         condition += " AND (json_extract(s.payload,'$.asset') IS NULL OR NOT EXISTS(SELECT 1 FROM stages d WHERE d.source=json_extract(s.payload,'$.asset') AND d.kind='download' AND d.run=s.run AND d.state!='complete'))"
         row = c.execute("SELECT s.* FROM stages s JOIN runs r ON r.id=s.run WHERE r.state='running' AND s.state IN ('queued','waiting') AND (s.next_at<=? OR (s.kind='caption' AND s.error='chatgpt_cooldown')) AND " + condition + " ORDER BY CASE s.kind WHEN 'text' THEN 0 WHEN 'context' THEN 1 WHEN 'transcript' THEN 2 WHEN 'download' THEN 4 ELSE 3 END,s.updated LIMIT 1", (time.time(),)).fetchone()
@@ -498,8 +499,12 @@ def work_once(lane="local", worker=0):
         stage = dict(row)
         c.execute("UPDATE stages SET state='running',updated=? WHERE id=?", (time.time(), stage["id"]))
     try:
-        with controls.scope(stage['run']):
-            result = execute(stage)
+        token = __import__('workplan').CATEGORY.set(stage.get('category', 'text'))
+        try:
+            with controls.scope(stage['run']):
+                result = execute(stage)
+        finally:
+            __import__('workplan').CATEGORY.reset(token)
         save_stage(stage, result)
         asset = json.loads(stage["payload"]).get("asset") or (stage["source"] if stage["kind"] == "download" else None)
         if asset:
@@ -517,6 +522,10 @@ def work_once(lane="local", worker=0):
             state, code, delay, attempts = 'waiting', 'chatgpt_cooldown', max(5, e.until-time.time()), stage['attempts']
         elif isinstance(e, InterruptedError):
             state, code, delay, attempts = "queued", "processing_paused", 0, stage["attempts"]
+        elif isinstance(e, __import__('page_providers').ProviderWait):
+            state, code, delay, attempts = 'waiting', e.code, max(5, e.until-time.time()), stage['attempts']
+        elif isinstance(e, __import__('page_providers').PageUnavailable):
+            state, code = ('blocked' if e.code == 'tinyfish_key_rejected' else 'unavailable'), e.code
         elif isinstance(e, BrowserNeeded):
             state, code = ("browser" if stage["kind"] == "page" else "unavailable"), e.reason
         elif isinstance(e, SourceUnavailable):

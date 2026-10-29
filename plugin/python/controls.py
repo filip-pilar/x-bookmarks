@@ -6,10 +6,10 @@ from store import db, setting, config
 
 RUN = contextvars.ContextVar('processing_run', default=None)
 DEFAULTS = {'cache_gib': 8, 'local_workers': 0, 'description_workers': 0,
-            'video_height': 480, 'x_requests': 100, 'description_requests': 100}
+            'video_height': 480, 'x_requests': 100, 'description_requests': 0}
 # Status and the pending-only action must select the same bookmarks. Existing
 # work belongs to its run, including failed work that needs an explicit retry.
-PENDING_ITEMS = """i.active=1 AND (i.processed_hash IS NULL OR i.processed_hash!=i.hash)
+PENDING_ITEMS = """i.active=1 AND (i.processed_hash IS NULL OR i.processed_hash!=i.hash OR EXISTS(SELECT 1 FROM work_available a WHERE a.item=i.id AND NOT EXISTS(SELECT 1 FROM work_plan p WHERE p.item=i.id AND p.category=a.category AND p.revision=i.hash)))
     AND NOT EXISTS(SELECT 1 FROM jobs j WHERE j.item=i.id AND j.kind='process'
         AND j.state NOT IN ('complete','cancelled'))"""
 
@@ -63,6 +63,8 @@ def validate_limits(limits=None, processing=False):
     limits = limits or {}
     if not isinstance(limits, dict) or set(limits) - {'x_requests', 'description_requests', 'items'}:
         raise ValueError('Unknown run limit.')
+    if processing and 'x_requests' in limits:
+        raise ValueError('X request limits belong to Import. Processing makes no X API calls.')
     if processing and 'items' in limits:
         raise ValueError('Item limits apply to imports, not processing saved bookmarks.')
     defaults = preferences()

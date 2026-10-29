@@ -74,23 +74,25 @@ def sync_folders():
 
 def sync(mode="new", process=False, limits=None):
     __import__('controls').validate_limits(limits)
-    if mode not in ("new", "full", "sample"):
-        raise ValueError("Sync mode must be new, full or sample.")
+    if process:
+        raise ValueError("Import and processing are separate. Start processing after import.")
+    if mode not in ("new", "full", "sample", "details"):
+        raise ValueError("Import mode must be new, full, sample or details.")
     if not config().get("account"):
         raise RuntimeError("Connect X first.")
-    if process:
-        require_runtime()
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
-        if mode != "sample" and not setting("full_inventory_at"):
+        if mode not in ("sample", "details") and not setting("full_inventory_at"):
             mode = "full"
         existing = resume_sync(c, mode)
+        if mode == 'details' and not existing:
+            c.execute("UPDATE x_dependencies SET state='pending',error=NULL WHERE state='missing'")
         if existing:
             saved = json.loads(c.execute('SELECT payload FROM jobs WHERE id=?', (existing,)).fetchone()[0])
             if bool(saved.get('process', False)) != bool(process):
                 raise ValueError('An unfinished import uses different processing settings. Resume it from Runs.')
         folders = setting("folder_inventory", {}) or {}
-        check_folders = mode != "sample" and (
+        check_folders = mode not in ("sample", "details") and (
             mode == "full"
             or not folders.get("complete")
             or time.time() - folders.get("at", 0) >= FOLDER_INTERVAL
@@ -98,7 +100,7 @@ def sync(mode="new", process=False, limits=None):
         job = existing or enqueue(
             c, "sync", "", {
                 "mode": mode,
-                "phase": "bookmarks",
+                "phase": "sources" if mode == "details" else "bookmarks",
                 "pages": 0,
                 "returned": 0,
                 "cursor": None,
@@ -199,6 +201,15 @@ def sync_step(job):
     args = {"max_results": p.get("page_size", 100) if phase == "bookmarks" else 100}
     if cursor:
         args["pagination_token"] = cursor
+    if phase == "sources":
+        if __import__('import_sources').step(run, items=p.get('mode') == 'details'):
+            with db() as c:
+                checkpoint(c, run, p)
+            return
+        p['phase'] = p.pop('after_sources', 'finish')
+        with db() as c:
+            checkpoint(c, run, p)
+        return
     if phase == "bookmarks":
         import controls
         remaining = controls.remaining_items(run, p.get('returned', 0))
@@ -227,7 +238,7 @@ def sync_step(job):
                 data = data[:remaining]
             if p.get("mode") == "sample":
                 data = data[:10]
-            upsert_page(c, {**page, "data": data}, run, process=p.get('process', False))
+            upsert_page(c, {**page, "data": data}, run, process=False)
             if left_on_page:
                 p['page_offset'] = offset + len(data)
             else:
@@ -243,6 +254,8 @@ def sync_step(job):
                     cursors=[],
                     endpoint_exhausted=not bool(nxt),
                 )
+            p['after_sources'] = p['phase']
+            p['phase'] = 'sources'
             checkpoint(c, run, p)
         return
     if phase == "finish":
@@ -335,15 +348,20 @@ def sync_step(job):
         returned = {r["id"] for r in data}
         p["unresolved_ids"] = skipped + [i for i in missing if i not in returned]
         with db() as c:
-            upsert_page(c, {**page, "data": data}, run, process=p.get('process', False))
+            upsert_page(c, {**page, "data": data}, run, process=False)
             p['returned'] = p.get('returned', 0) + len(data)
-            p["phase"] = "hydrate"
+            p["phase"] = "sources"
+            p["after_sources"] = "hydrate"
             checkpoint(c, run, p)
         return
     finish_sync(run, p)
 
 
 def finish_sync(run, p):
+    if p.get('mode') == 'details':
+        with db() as c:
+            c.execute("UPDATE jobs SET state='complete',updated=?,payload=? WHERE id=?", (time.time(), json.dumps(p), run))
+        return
     # Retain the previous inventory; source files are never deleted by a scan.
     from maintenance import inventory_snapshot
 
@@ -441,32 +459,23 @@ def finish_sync(run, p):
         c.execute("DELETE FROM scan_folders WHERE run=?", (run,))
 
 
-def process_saved(mode="rebuild", item=None, limits=None, scope="all"):
+def process_saved(mode="repair", item=None, limits=None, scope="pending", categories=None, content="all", items=None):
     __import__('controls').validate_limits(limits, processing=True)
     require_runtime()
-    if mode not in ("rebuild", "repair", "refresh"):
-        raise ValueError("Unknown processing mode.")
-    if scope not in ("pending", "all"):
-        raise ValueError("Unknown processing scope.")
+    if mode not in ('rebuild', 'repair'):
+        raise ValueError('Refresh X sources through Import. Processing never requests X API data.')
+    if scope not in ('pending', 'all'):
+        raise ValueError('Unknown processing scope.')
     with db() as c:
-        c.execute("BEGIN IMMEDIATE")
-        run = __import__("uuid").uuid4().hex
-        rows = c.execute(
-            "SELECT i.id FROM items i WHERE "
-            + (__import__('controls').PENDING_ITEMS if scope == "pending" else "i.active=1")
-            + (" AND i.id=?" if item else ""),
-            (item,) if item else (),
-        ).fetchall()
-        if item and not rows and not c.execute("SELECT 1 FROM items WHERE id=? AND active=1", (item,)).fetchone():
-            raise ValueError("Bookmark is not in this library.")
-        for row in rows:
-            enqueue(c, "process", row[0], {"mode": mode, "retry": mode == "repair"}, run=run)
-    with db() as c:
-        queued = c.execute("SELECT count(*) FROM jobs WHERE run=? AND state='queued'", (run,)).fetchone()[0]
-    if queued:
-        __import__("pipeline").authorize(run, limits)
+        c.execute('BEGIN IMMEDIATE')
+        run = __import__('uuid').uuid4().hex
+        rows = __import__('workplan').selected(c, {'item': item, 'items': items, 'categories': categories, 'content': content, 'scope': scope})
+        for ident, todo in rows:
+            enqueue(c, 'process', ident, {'mode': mode, 'categories': todo}, run=run)
+    if rows:
+        __import__('pipeline').authorize(run, limits)
     WAKE.set()
-    return {"queued": queued, "mode": mode, "scope": scope, "run": run if queued else None, "network_allowed": mode != "rebuild"}
+    return {'queued': len(rows), 'mode': mode, 'scope': scope, 'run': run if rows else None, 'x_requests': 0}
 
 
 def control(action, run=None, item=None, failed_only=False):
@@ -529,6 +538,7 @@ def loop(kind):
                         retry=bool(payload.get("retry")),
                         mode=payload.get("mode", "repair"),
                         generation=job["run"],
+                        categories=payload.get("categories"),
                     )
                 with db() as c:
                     c.execute("BEGIN IMMEDIATE")
@@ -538,7 +548,7 @@ def loop(kind):
                     )
                     current = c.execute("SELECT hash,processed_hash FROM items WHERE id=?", (job["item"],)).fetchone()
                     if current and current["hash"] != current["processed_hash"]:
-                        enqueue(c, "process", job["item"], {"mode": "repair"}, run=job["run"])
+                        enqueue(c, "process", job["item"], {"mode": "repair", "categories": payload.get("categories")}, run=job["run"])
                         c.execute("UPDATE items SET state='pending' WHERE id=?", (job["item"],))
         except Exception as e:
             from sources import DiskSpaceError

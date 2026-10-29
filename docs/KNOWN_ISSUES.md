@@ -1,6 +1,17 @@
 # Verification and remaining limitations
 
-Version 0.8.1 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.9.0 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+
+## Verified for 0.9.0 workflow
+
+- Controlled HTTP/SQLite import resumed a cached partial page, captured shared direct context once, and made zero X requests during selective processing. Grandparent/quote chains were excluded; deferred categories remained visible.
+- The real stage scheduler and local embedding model completed saved post/page text while a page quota wait survived restart without consuming retry attempts. No X calls occurred.
+- One desktop capture supplied 61 waiting bookmarks. Retry/skip/restore preserved unrelated waiting work. Jina/TinyFish HTTP adapters and persistent free-quota admission were exercised with controlled responses; diagnostics excluded keys and URLs.
+- An isolated copy of 100 bookmarks and 2,572 evidence chunks migrated paused, preserving items, vectors, lexical index, folders, calls, presentations and engagement observations. Repeated migration did not resume work.
+- The actual built panel, MCP server and backend were rehearsed in a controlled desktop host. Choose work did not move queue rows; selected-item preview, failed-start feedback, website groups, services, empty search and a 390-pixel dark layout were checked. An already-open Codex panel is a separate runtime surface.
+- Live public capture recovered design.how/systems and manifestos.tech through Jina. The directory's truncated local extraction escalated to 606 words. The Octoglow canvas application stayed incomplete; its fallback message was not accepted as captured content. Links inside pages were not followed.
+
+TinyFish live execution needs a user key and has not been checked against the provider account. Controlled responses do not establish real-site success. Authenticated recovery may require an active desktop task and personal access. Interactive applications, paywalls, scanned PDFs and inaccessible sources can remain partial. No bulk import ran as validation.
 
 ## Verified for 0.8.1 Activity
 
@@ -152,7 +163,7 @@ Earlier controlled inventory rehearsals exercised 337 bookmarks across four page
 - **Reported 300-bookmark cutoff:** there is no deliberate 300-bookmark inventory cap. Its exact cause on the friend's device remains unconfirmed without saved diagnostics. More credits do not remove rate limits, account access restrictions or provider history limits. Export diagnostics before retrying or buying more credits.
 - **Coverage:** exhausted API pages do not prove X exposes every historical bookmark. Missing metrics stay unknown. Inaccessible/deleted media remains unavailable; partial folders stay explicit. Parent/quote scope is one hop, with no thread discovery.
 - **Visual/speech quality:** one frame per second can miss brief events or tiny text; descriptions may be wrong. Parakeet's English model is not a multilingual guarantee. PDF text extraction does not interpret page graphics. The controlled examples establish basic operation, not arbitrary-source accuracy.
-- **Browser/Reader:** A live public Jina Reader request returned 4,900 readable words in the expected format; fallback routing was separately verified with controlled responses. Availability and extraction quality still vary. Forwarding is restricted to recognized public or owner-approved hosts; other sites wait for a desktop agent. Private login/session access must use the appropriate browser profile, and recovery cannot bypass authentication or challenges. Authenticated real-site recovery has not been rehearsed.
+- **Browser/Reader:** local extraction → no-key Jina → optional TinyFish Fetch. Public HTTP blocks can escalate; private/credential-bearing URLs and login/paywall content stay local. Quota waits persist and leave local processing free to continue. Remaining pages are grouped by website for retry/skip or desktop recovery. Actual TinyFish and authenticated recovery remain unverified; extraction completeness cannot be guaranteed.
 - **Subscription:** recipient eligibility/models and shared usage allowances may differ. The provider initially showed an error/security verification before callback; personal completion succeeded. Such provider-side sign-in failures cannot be repaired by spending X credits or substituting Platform API billing.
 - **Storage/updates:** existing originals and historical logs/scans are preserved; the bounded temporary-media policy applies to newly managed media. Older retained files need a separately authorized cleanup. Backups exclude disposable media and OAuth credentials; unfinished work may need retrieval after restore. Model weights and durable vectors/text consume storage outside the temporary budget.
 

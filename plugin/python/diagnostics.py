@@ -6,7 +6,7 @@ import re
 def safe_error(value, limit=1500):
     text = str(value)
     text = re.sub(r"(?i)Bearer\s+\S+", "Bearer [redacted]", text)
-    text = re.sub(r"(?i)(access_token|refresh_token|client_secret|code_verifier|authorization|token)([\"'\s:=]+)[^\s,\"'}]+",
+    text = re.sub(r"(?i)(api_key|tinyfish_key|x-api-key|access_token|refresh_token|client_secret|code_verifier|authorization|token)([\"'\s:=]+)[^\s,\"'}]+",
                   r"\1\2[redacted]", text)
     text = re.sub(r"https?://[^\s<>\"']+", lambda m: m[0].split("?", 1)[0], text)
     return text[-limit:]
@@ -25,7 +25,7 @@ def export_report():
         if re.fullmatch(r'temporary_budget_required:[0-9]+', raw):
             return raw
         for candidate in (raw, raw.split(": ", 1)[-1]):
-            if re.fullmatch(r"(?:disk_|run_limit_|chatgpt_|subscription_sharing_|source_|x_http_|temporary_|pdf_|reader_|frame_|login_|partial_|saved_|authentication_|incomplete_|private_|invalid_|media_)[a-z0-9_]{1,90}", candidate):
+            if re.fullmatch(r"(?:disk_|run_limit_|chatgpt_|subscription_sharing_|source_|x_http_|temporary_|pdf_|reader_|jina_|tinyfish_|public_|linked_|paywalled_|frame_|login_|partial_|saved_|authentication_|incomplete_|private_|invalid_|media_)[a-z0-9_]{1,90}", candidate):
                 return candidate
         if "macOS Vision helper failed" in raw:
             return "vision_helper_failed"
@@ -34,7 +34,7 @@ def export_report():
         return "processing_error" if raw else None
     with db() as c:
         tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        stages = [{"task": alias(r["id"]), "item": alias(r["item"]), "stage": r["kind"], "state": r["state"], "attempts": r["attempts"], "next_at": r["next_at"], "updated": r["updated"], "error_code": code(r["error"])} for r in c.execute("SELECT * FROM stages WHERE state IN ('failed','blocked','browser','waiting','unavailable') ORDER BY updated DESC LIMIT 1000")] if "stages" in tables else []
+        stages = [{"task": alias(r["id"]), "item": alias(r["item"]), "stage": r["kind"], "category": r["category"], "state": r["state"], "attempts": r["attempts"], "next_at": r["next_at"], "updated": r["updated"], "error_code": code(r["error"])} for r in c.execute("SELECT * FROM stages WHERE state IN ('failed','blocked','browser','waiting','unavailable') ORDER BY updated DESC LIMIT 1000")] if "stages" in tables else []
         stage_counts = [dict(r) for r in c.execute("SELECT kind,state,count(*) AS count FROM stages GROUP BY kind,state")] if "stages" in tables else []
         attention = sum(r["count"] for r in stage_counts if r["state"] in ("failed", "blocked", "browser", "waiting", "unavailable"))
         jobs = []
@@ -45,11 +45,13 @@ def export_report():
         calls = [dict(r) for r in c.execute("SELECT status,count(*) AS requests,sum(records) AS records FROM calls GROUP BY status")]
         counts = {r[0]: r[1] for r in c.execute("SELECT state,count(*) FROM items GROUP BY state")}
         limits = [{**dict(r), 'run': alias(r['run'])} for r in c.execute('SELECT * FROM run_limits ORDER BY rowid DESC LIMIT 100')] if 'run_limits' in tables else []
+        dependencies = [dict(r) for r in c.execute('SELECT relation,state,count(*) count FROM x_dependencies GROUP BY relation,state')]
+        providers = [dict(r) for r in c.execute('SELECT provider,day,used,next_at FROM page_provider_usage ORDER BY day DESC LIMIT 14')]
     checks = (preflight_status() or {}).get("checks", {})
     report = {"version": VERSION, "created_at": time.time(), "os": platform.system(), "os_version": platform.mac_ver()[0], "architecture": platform.machine(),
               "disk_free": shutil.disk_usage(HOME).free, "items_by_state": counts, "preflight": {k: {"ok": v.get("ok") is True} for k, v in checks.items()},
               "stage_counts": stage_counts, "stage_details_truncated": attention > len(stages), "stages": stages, "jobs": jobs, "http_status_counts": calls,
-              "run_limits": limits, "processing_preferences": __import__('controls').preferences()}
+              "import_dependencies": dependencies, "page_providers": providers, "run_limits": limits, "processing_preferences": __import__('controls').preferences()}
     summary = f"Bookmark Library {VERSION}\n{sum(counts.values())} saved bookmarks\n{sum(r['count'] for r in stage_counts)} processing stages\n{attention} stages need attention, are waiting or unavailable\n\nContains versions, counts, task aliases, error codes and timings. Excludes credentials, account/post IDs, URLs, bookmark contents and raw logs.\n"
     directory = HOME / "reports"
     directory.mkdir(exist_ok=True)

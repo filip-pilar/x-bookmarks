@@ -32,6 +32,7 @@ type Item = {
   next_at?: number;
   eligible: number;
   issues: number;
+  deferred?: string[];
   presentation: {
     name?: string;
     preview?: string;
@@ -49,6 +50,7 @@ type Snapshot = {
   next_offset: number | null;
   counts: Record<string, number>;
   paused: boolean;
+  missing_details: number;
   import:
     | (Run & {
         unfinished: boolean;
@@ -83,6 +85,7 @@ type Dependencies = {
   refresh: () => Promise<void>;
   openBookmark: (id: string) => Promise<void>;
   settings: () => void;
+  openUrl: (url: string) => Promise<void>;
   recover: (item?: string) => Promise<void>;
   export: () => Promise<void>;
   escape: (value: unknown) => string;
@@ -123,9 +126,10 @@ const filters = [
   ["all", "All"],
   ["active", "Active"],
   ["waiting", "Waiting"],
-  ["attention", "Needs attention"],
+  ["attention", "Needs you"],
   ["complete", "Complete"],
   ["partial", "Partial"],
+  ["websites", "Websites"],
 ] as const;
 
 export class Activity {
@@ -146,6 +150,10 @@ export class Activity {
   private choices = new Map<string, Choice>();
   private popupTrigger?: HTMLElement;
   private scroll = 0;
+  private selected = new Set<string>();
+  private previewRequest = 0;
+  private groups: any[] = [];
+  private groupNext: number | null = null;
   constructor(private d: Dependencies) {
     const section = document.createElement("section");
     section.id = "activity";
@@ -154,19 +162,32 @@ export class Activity {
     section.innerHTML = `<div id="activity-scroll" class="scrollport" tabindex="-1">
    <div class="activity-heading"><h2 id="activity-heading" tabindex="-1">Activity</h2><div class="actions"><button id="activity-history" class="quiet icon-button">${icon("clock")}<span>History</span></button><button id="activity-more" class="quiet icon-only" aria-label="Activity options" aria-expanded="false">${icon("more")}</button></div></div>
    <section class="activity-section" aria-labelledby="activity-import-heading"><div class="activity-section-head"><div class="activity-title">${icon("download")}<h3 id="activity-import-heading">Import</h3><span id="activity-import-state" class="muted"></span></div><div class="actions"><button id="activity-import-pause" class="icon-button" hidden>${icon("pause")}Pause</button><button id="activity-import-toggle" class="icon-button" aria-expanded="false">Import bookmarks ${icon("chevron")}</button></div></div>
-    <p id="activity-import-count" class="activity-count">Loading…</p><div class="activity-section-foot"><p id="activity-import-note" class="muted"></p><button id="activity-coverage" class="quiet">Coverage</button></div>
+    <p id="activity-import-count" class="activity-count">Loading…</p><div class="activity-section-foot"><p id="activity-import-note" class="muted"></p><div class="actions"><button id="activity-fill-details" class="quiet" hidden>Fill missing details</button><button id="activity-coverage" class="quiet">Coverage</button></div></div>
    </section>
-   <section class="activity-section" aria-labelledby="activity-processing-heading"><div class="activity-section-head"><div class="activity-title">${icon("activity")}<h3 id="activity-processing-heading">Processing</h3><span id="activity-processing-state" class="muted"></span></div><div class="actions activity-processing-actions"><button id="activity-new-work" hidden>Process new bookmarks</button><button id="activity-process" class="primary icon-button" disabled>${icon("play")}<span>Process bookmarks</span></button></div></div>
-    <p id="activity-counts" class="activity-count">Loading…</p><progress id="activity-progress" max="100" value="0" aria-label="Fully processed bookmarks"></progress><div class="activity-section-foot"><p class="muted">Imported text is searchable.</p><button id="activity-process-limits" class="quiet icon-button" aria-expanded="false">${icon("settings")}Limits</button></div><p id="activity-limit-summary" class="muted"></p>
+   <section class="activity-section" aria-labelledby="activity-processing-heading"><div class="activity-section-head"><div class="activity-title">${icon("activity")}<h3 id="activity-processing-heading">Processing</h3><span id="activity-processing-state" class="muted"></span></div><div class="actions activity-processing-actions"><button id="activity-new-work" hidden>Choose work</button><button id="activity-process" class="primary icon-button" disabled>${icon("play")}<span>Process bookmarks</span></button></div></div>
+    <p id="activity-counts" class="activity-count">Loading…</p><progress id="activity-progress" max="100" value="0" aria-label="Fully processed bookmarks"></progress><div class="activity-section-foot"><p class="muted">Imported text is searchable.</p><button id="activity-process-limits" class="quiet icon-button" aria-expanded="false">${icon("settings")}Choose work</button></div><p id="activity-limit-summary" class="muted"></p>
    </section>
    <div id="activity-feedback" role="status" class="activity-feedback"></div>
    <div class="activity-queue-head"><nav id="activity-filters" aria-label="Work status">${filters.map(([key, label]) => `<button data-view="${key}" class="quiet" aria-pressed="${key === "all"}">${label}<span data-count="${key}">0</span></button>`).join("")}</nav><form id="activity-search" role="search"><label class="sr-only" for="activity-query">Find in activity</label>${icon("search")}<input id="activity-query" type="search" placeholder="Find bookmark" maxlength="300"><button class="quiet icon-only" type="submit" aria-label="Search activity">${icon("chevron")}</button></form></div>
-   <div class="activity-results-state"><span id="activity-results-label" role="status"></span><button id="activity-update" class="quiet" disabled>Refresh</button></div>
+   <div class="activity-results-state"><div class="actions"><button id="activity-selection" class="quiet" hidden></button><button id="activity-clear-selection" class="quiet" hidden>Clear</button><button id="activity-retry-failed" class="quiet" hidden>Retry failures</button><button id="activity-services" class="quiet" hidden>Page services</button></div><span id="activity-results-label" role="status"></span><button id="activity-update" class="quiet" disabled>Refresh</button></div>
    <div id="activity-rows" aria-busy="true"></div><div id="activity-empty" class="activity-empty" hidden><p></p><button id="activity-retry" hidden>Try again</button></div>
    <div class="activity-footer"><span id="activity-page" tabindex="-1"></span><div class="actions"><button id="activity-prev" class="quiet icon-only" aria-label="Previous page" disabled><span class="back-icon">${icon("chevron")}</span></button><button id="activity-next" class="quiet icon-only" aria-label="Next page" disabled>${icon("chevron")}</button></div></div>
   </div>
   <div id="activity-import-options" class="activity-popover" popover="auto" aria-labelledby="activity-import-options-heading"><div class="activity-popover-head"><h3 id="activity-import-options-heading">Import bookmarks</h3><button class="quiet icon-only" data-close-activity aria-label="Close import options">${icon("close")}</button></div><div id="activity-sign-in" hidden><p>Connect X to import bookmarks.</p><button id="activity-connect">Open settings</button></div><div id="activity-import-form"><label id="activity-scope-label" for="activity-scope-trigger">Import</label><div id="activity-scope" class="choice"></div><p class="muted">Uses X credits. Processing starts separately.</p><details class="activity-import-limits"><summary>Limits</summary><label id="activity-x-label" for="activity-x-trigger">X request limit</label><div id="activity-x" class="choice"></div></details><p id="activity-import-budget" class="muted"></p><button id="activity-start-import" class="primary">Import bookmarks</button><button id="activity-recheck" class="quiet" hidden>Recheck from newest</button></div></div>
-  <div id="activity-limits-options" class="activity-popover" popover="auto" aria-labelledby="activity-limits-heading"><div class="activity-popover-head"><h3 id="activity-limits-heading">Processing limits</h3><button class="quiet icon-only" data-close-activity aria-label="Close limits">${icon("close")}</button></div><label id="activity-process-x-label" for="activity-process-x-trigger">X requests</label><div id="activity-process-x" class="choice"></div><label id="activity-descriptions-label" for="activity-descriptions-trigger">Image descriptions</label><div id="activity-descriptions" class="choice"></div><p class="muted">For the next processing run. X requests use credits; descriptions use your ChatGPT plan. These are not spending caps.</p></div>
+  <div id="activity-limits-options" class="activity-popover" popover="auto" aria-labelledby="activity-limits-heading"><div class="activity-popover-head"><h3 id="activity-limits-heading">Choose work</h3><button class="quiet icon-only" data-close-activity aria-label="Close processing options">${icon("close")}</button></div><label id="activity-content-label" for="activity-content-trigger">Bookmarks</label><div id="activity-content" class="choice"></div><fieldset class="work-categories"><legend>Process</legend>${[
+    ["text", "Text"],
+    ["images", "Images"],
+    ["video", "Video & audio"],
+    ["pages", "Linked pages"],
+  ]
+    .map(
+      ([value, label]) =>
+        `<label><input type="checkbox" name="work-category" value="${value}" checked><span>${label}</span></label>`,
+    )
+    .join(
+      "",
+    )}</fieldset><p class="muted">Saved sources only. Image descriptions use your ChatGPT plan. Public linked pages may use Jina or TinyFish.</p><details><summary>Image description limit</summary><label id="activity-descriptions-label" for="activity-descriptions-trigger">This run</label><div id="activity-descriptions" class="choice"></div></details><p id="activity-work-preview" class="muted" role="status">Checking…</p><button id="activity-start-processing" class="primary" disabled>Process</button></div>
+  <div id="activity-services-options" class="activity-popover" popover="auto" aria-labelledby="activity-services-heading"><div class="activity-popover-head"><h3 id="activity-services-heading">Page services</h3><button class="quiet icon-only" data-close-activity aria-label="Close page services">${icon("close")}</button></div><p>Local extraction → Jina → TinyFish</p><p class="muted">Public pages only. Jina works without a key. TinyFish Fetch is optional, capped at 1,000 requests a day; quota waits resume automatically.</p><p id="activity-service-state" role="status"></p><label for="activity-service-key">TinyFish API key</label><input id="activity-service-key" type="password" autocomplete="off" placeholder="Paste key" maxlength="512"><p class="muted">Stored on this Mac. No paid Agent or Browser calls.</p><div class="actions"><button id="activity-save-key">Save key</button><button id="activity-get-key" class="quiet">Get key ↗</button><button id="activity-remove-key" class="quiet" hidden>Remove</button></div></div>
   <div id="activity-coverage-options" class="activity-popover" popover="auto" aria-labelledby="activity-coverage-heading"><div class="activity-popover-head"><h3 id="activity-coverage-heading">Import coverage</h3><button class="quiet icon-only" data-close-activity aria-label="Close coverage">${icon("close")}</button></div><dl id="activity-coverage-values" class="storage-list"></dl><p class="muted">X may not return every historical bookmark.</p></div>
   <div id="activity-more-options" class="activity-popover activity-menu" popover="auto" aria-label="Activity options"><button id="activity-diagnostics">Export diagnostics</button><button id="activity-settings">Processing settings</button></div>`;
     $("search-form").before(section);
@@ -183,7 +204,20 @@ export class Activity {
     importFooter.className = "activity-popover-footer";
     importFooter.append($("activity-start-import"), $("activity-recheck"));
     $("activity-import-options").append(importFooter);
+    const workFooter = document.createElement("div");
+    workFooter.className = "activity-popover-footer";
+    workFooter.append($("activity-start-processing"));
+    $("activity-limits-options").append(workFooter);
     for (const [id, values] of [
+      [
+        "activity-content",
+        [
+          { value: "all", label: "All bookmarks" },
+          { value: "text", label: "Text-only posts" },
+          { value: "images", label: "Posts with images" },
+          { value: "video", label: "Posts with video" },
+        ],
+      ],
       [
         "activity-scope",
         [
@@ -192,30 +226,32 @@ export class Activity {
           { value: "0", label: "All available" },
         ],
       ],
-      ...["activity-x", "activity-process-x", "activity-descriptions"].map(
-        (id) => [
-          id,
-          [25, 100, 500, 1000, 0].map((v) => ({
-            value: String(v),
-            label: v ? n(v) : "No limit",
-          })),
-        ],
-      ),
+      ...["activity-x", "activity-descriptions"].map((id) => [
+        id,
+        [25, 100, 500, 1000, 0].map((v) => ({
+          value: String(v),
+          label: v ? n(v) : "No limit",
+        })),
+      ]),
     ] as [string, { value: string; label: string }[]][]) {
       const c = new Choice($(id), values);
-      c.value = "100";
+      c.value =
+        id === "activity-content"
+          ? "all"
+          : id === "activity-descriptions"
+            ? "0"
+            : "100";
       this.choices.set(id, c);
-      c.onChange = () => this.budgetCopy();
+      c.onChange = () => {
+        this.budgetCopy();
+        void this.previewWork();
+      };
     }
     const on = (id: string, fn: () => Promise<void>) =>
       (button(id).onclick = () => void this.perform(fn, button(id)));
     button("activity-import-toggle").onclick = () =>
       this.popover("activity-import-options", button("activity-import-toggle"));
-    button("activity-process-limits").onclick = () =>
-      this.popover(
-        "activity-limits-options",
-        button("activity-process-limits"),
-      );
+    button("activity-process-limits").onclick = () => this.chooseWork();
     button("activity-coverage").onclick = () =>
       this.popover("activity-coverage-options", button("activity-coverage"));
     button("activity-more").onclick = () =>
@@ -242,7 +278,52 @@ export class Activity {
       await this.update();
     });
     on("activity-process", () => this.process());
-    on("activity-new-work", () => this.startProcessing());
+    button("activity-new-work").onclick = () => this.chooseWork();
+    on("activity-start-processing", () => this.startProcessing());
+    button("activity-selection").onclick = () => this.chooseWork();
+    button("activity-clear-selection").onclick = () => {
+      this.selected.clear();
+      section
+        .querySelectorAll<HTMLInputElement>(".activity-select")
+        .forEach((e) => (e.checked = false));
+      this.selectionCopy();
+    };
+    section
+      .querySelectorAll<HTMLInputElement>('[name="work-category"]')
+      .forEach((e) => (e.onchange = () => void this.previewWork()));
+    on("activity-fill-details", async () => {
+      await this.d.call("sync", {
+        mode: "details",
+        process: false,
+        limits: { x_requests: this.value("activity-x") },
+      });
+      await this.update();
+    });
+    on("activity-retry-failed", async () => {
+      const r = await this.d.call("page_recovery", {
+        action: "retry",
+        ...(this.view === "websites" ? { category: "pages" } : {}),
+      });
+      this.text("activity-feedback", `${r.changed} failed steps queued.`);
+      await this.update();
+    });
+    on("activity-services", async () => {
+      this.popover("activity-services-options", button("activity-services"));
+      await this.services();
+    });
+    on("activity-save-key", async () => {
+      const input = $("activity-service-key") as HTMLInputElement;
+      if (!input.value.trim()) {
+        input.focus();
+        return;
+      }
+      await this.services({ tinyfish_key: input.value });
+      input.value = "";
+    });
+    on("activity-get-key", () =>
+      this.d.openUrl("https://agent.tinyfish.ai/api-keys"),
+    );
+    on("activity-remove-key", () => this.services({ tinyfish_key: "" }));
     button("activity-history").onclick = () =>
       this.filter(this.view === "history" ? "all" : "history");
     $("activity-filters")
@@ -270,7 +351,9 @@ export class Activity {
       await this.load(true, true);
     });
     on("activity-next", async () => {
-      this.offset = this.data?.next_offset ?? this.offset;
+      this.offset =
+        (this.view === "websites" ? this.groupNext : this.data?.next_offset) ??
+        this.offset;
       await this.load(true, true);
     });
     section
@@ -401,7 +484,7 @@ export class Activity {
   setState(s: State) {
     this.state = s;
     if (!this.initialized) {
-      for (const id of ["activity-x", "activity-process-x"])
+      for (const id of ["activity-x"])
         this.setChoice(id, s.preferences.x_requests);
       this.setChoice(
         "activity-descriptions",
@@ -452,7 +535,6 @@ export class Activity {
   }
   private budgetCopy() {
     const x = this.value("activity-x"),
-      px = this.value("activity-process-x"),
       descriptions = this.value("activity-descriptions");
     this.text(
       "activity-import-budget",
@@ -460,7 +542,7 @@ export class Activity {
     );
     this.text(
       "activity-limit-summary",
-      `Next run: ${px ? n(px) : "unlimited"} X requests · ${descriptions ? n(descriptions) : "unlimited"} image descriptions`,
+      `No X API requests during processing${descriptions ? ` · ${n(descriptions)} image descriptions per new run` : ""}`,
     );
   }
   private renderSummary() {
@@ -472,6 +554,13 @@ export class Activity {
     $("activity-import-footer").hidden = !state?.connected;
     this.disable("activity-start-import", !this.online || !state?.connected);
     if (!s) return;
+    $("activity-fill-details").hidden = !s.missing_details;
+    this.disable(
+      "activity-fill-details",
+      !this.online || !state?.connected || !!s.import?.unfinished,
+    );
+    button("activity-fill-details").title =
+      `${n(s.missing_details)} bookmarks need X details. Uses X credits.${s.import?.unfinished ? " Finish the current import first." : ""}`;
     const imp = s.import,
       unfinished = !!imp?.unfinished,
       active =
@@ -546,15 +635,17 @@ export class Activity {
         ? "Pausing…"
         : running
           ? "Running"
-          : c.attention
-            ? "Needs attention"
-            : c.waiting || c.retrying
-              ? "Idle"
-              : c.partial
-                ? "Partial"
-                : c.total
-                  ? "Complete"
-                  : "Idle",
+          : r?.pending_steps
+            ? "Paused"
+            : c.attention
+              ? "Needs attention"
+              : c.waiting || c.retrying
+                ? "Idle"
+                : c.partial
+                  ? "Partial"
+                  : c.total
+                    ? "Complete"
+                    : "Idle",
     );
     this.text(
       "activity-counts",
@@ -576,8 +667,7 @@ export class Activity {
       "aria-valuetext",
       `${plural(c.complete)} fully processed of ${n(c.total)}`,
     );
-    $("activity-new-work").hidden = !c.eligible || !s.processing_run_count;
-    this.text("activity-new-work", `Process ${n(c.eligible)} new`);
+    $("activity-new-work").hidden = true;
     this.disable("activity-new-work", !this.online);
     const b = button("activity-process");
     let label: string,
@@ -618,10 +708,18 @@ export class Activity {
           : key === "waiting"
             ? c.waiting + c.retrying
             : c[key];
-      this.textCount(key, count);
+      this.textCount(key, key === "websites" ? undefined : count);
     });
     $("activity-filters").hidden = this.view === "history";
-    $("activity-search").hidden = this.view === "history";
+    $("activity-search").hidden = ["history", "websites"].includes(this.view);
+    $("activity-services").hidden = this.view !== "websites";
+    $("activity-retry-failed").hidden = ![
+      "partial",
+      "attention",
+      "websites",
+    ].includes(this.view);
+    this.disable("activity-retry-failed", !this.online);
+    this.selectionCopy();
     this.text(
       "activity-heading",
       this.view === "history" ? "Activity history" : "Activity",
@@ -636,9 +734,9 @@ export class Activity {
         b.setAttribute("aria-pressed", String(b.dataset.view === this.view)),
       );
   }
-  private textCount(key: string, value: number) {
+  private textCount(key: string, value?: number) {
     const node = $("activity-filters").querySelector(`[data-count="${key}"]`)!;
-    node.textContent = n(value);
+    node.textContent = value === undefined ? "" : n(value);
   }
   async load(replace = false, page = false) {
     const request = ++this.request;
@@ -650,18 +748,34 @@ export class Activity {
     }
     try {
       const data = (await this.d.call("activity", {
-        view: this.view,
+        view: this.view === "websites" ? "all" : this.view,
         query: this.query,
-        offset: this.offset,
+        offset: this.view === "websites" ? 0 : this.offset,
         limit: 20,
         visible_ids:
           replace || this.view === "history" ? [] : [...this.items.keys()],
       })) as Snapshot;
+      const sites =
+        this.view === "websites"
+          ? await this.d.call("recovery_groups", {
+              view: "all",
+              offset: this.offset,
+              limit: 20,
+            })
+          : null;
       if (request !== this.request || !this.visible) return;
       this.data = data;
       this.renderSummary();
       button("activity-retry").hidden = true;
-      if (this.view === "history") {
+      if (sites) {
+        this.groups = sites.groups;
+        this.groupNext = sites.next_offset;
+        this.renderGroups(replace);
+        this.changed = false;
+        data.total = sites.total;
+        data.offset = sites.offset;
+        data.next_offset = sites.next_offset;
+      } else if (this.view === "history") {
         this.renderHistory(data, replace);
         this.changed = false;
       } else {
@@ -685,6 +799,25 @@ export class Activity {
       }
       this.updateActions();
       this.offset = data.offset;
+      if (sites) {
+        $("activity-empty").hidden = !!sites.groups.length;
+        $("activity-empty").querySelector("p")!.textContent =
+          "No unresolved linked pages.";
+        this.text(
+          "activity-results-label",
+          "Grouped by website · Saved content stays usable",
+        );
+        this.text(
+          "activity-page",
+          sites.groups.length
+            ? `${n(data.offset + 1)}–${n(data.offset + sites.groups.length)} of ${n(sites.total)} groups`
+            : "",
+        );
+        this.disable("activity-update");
+        button("activity-prev").disabled = !data.offset;
+        button("activity-next").disabled = sites.next_offset === null;
+        return;
+      }
       $("activity-empty").hidden = !!(this.view === "history"
         ? data.items.length
         : this.items.size);
@@ -766,7 +899,7 @@ export class Activity {
           )[row.kind] || "Processing";
     if (row.status === "attention")
       return row.stage_state === "browser"
-        ? "Browser needed"
+        ? "Access needed"
         : row.error?.startsWith("chatgpt_")
           ? "ChatGPT needed"
           : row.error?.startsWith("x_http_")
@@ -779,11 +912,19 @@ export class Activity {
         ? `Retry at ${clock(row.next_at!)}`
         : "Waiting to retry";
     if (row.status === "waiting")
-      return (row.run && row.run_state !== "running") ||
-        (this.data?.paused && !row.eligible)
-        ? "Paused"
-        : "Waiting";
-    return row.status === "partial" ? "Source unavailable" : "Complete";
+      return row.deferred?.length && row.eligible
+        ? "Ready to process"
+        : (row.run && row.run_state !== "running") ||
+            (this.data?.paused && !row.eligible)
+          ? "Paused"
+          : "Waiting";
+    return row.status === "partial"
+      ? row.stage_state === "skipped"
+        ? "Skipped source"
+        : row.stage_state === "browser"
+          ? "Page incomplete"
+          : "Partial"
+      : "Complete";
   }
   private renderRow(row: Item) {
     const esc = this.d.escape;
@@ -797,7 +938,20 @@ export class Activity {
       const preview = this.d.preview(
         row.presentation.preview || row.presentation.avatar,
       );
-      node.innerHTML = `<div class="activity-row-main"><button class="activity-item" aria-expanded="false" aria-controls="activity-detail-${row.id}"><span class="activity-thumbnail">${preview ? `<img src="${esc(preview)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : icon("download")}</span><span class="activity-item-text"><strong>${esc(row.presentation.name || (row.author && "@" + row.author) || "Saved post")}</strong><span>${esc((row.presentation.text || row.title || "Media bookmark").replace(/\s+/g, " "))}</span></span></button><span class="activity-type">${esc(row.content_types.filter((x) => x !== "Post").join(" · ") || "Post")}</span><span class="activity-row-state"></span><button class="activity-row-action quiet" hidden></button></div><div class="activity-item-detail" id="activity-detail-${row.id}" hidden></div>`;
+      node.innerHTML = `<div class="activity-row-main"><input class="activity-select" type="checkbox" aria-label="Select ${esc(row.presentation.name || row.author || "bookmark")}"><button class="activity-item" aria-expanded="false" aria-controls="activity-detail-${row.id}"><span class="activity-thumbnail">${preview ? `<img src="${esc(preview)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : icon("download")}</span><span class="activity-item-text"><strong>${esc(row.presentation.name || (row.author && "@" + row.author) || "Saved post")}</strong><span>${esc((row.presentation.text || row.title || "Media bookmark").replace(/\s+/g, " "))}</span></span></button><span class="activity-type">${esc(row.content_types.filter((x) => x !== "Post").join(" · ") || "Post")}</span><span class="activity-row-state"></span><button class="activity-row-action quiet" hidden></button></div><div class="activity-item-detail" id="activity-detail-${row.id}" hidden></div>`;
+      const select = node.querySelector<HTMLInputElement>(".activity-select")!;
+      select.checked = this.selected.has(row.id);
+      select.onchange = () => {
+        if (select.checked && this.selected.size >= 500) {
+          select.checked = false;
+          this.text("activity-feedback", "Select up to 500 bookmarks.");
+          return;
+        }
+        select.checked
+          ? this.selected.add(row.id)
+          : this.selected.delete(row.id);
+        this.selectionCopy();
+      };
       node
         .querySelector("img")
         ?.addEventListener("error", (e) =>
@@ -830,7 +984,7 @@ export class Activity {
     );
     const kind =
       row.status === "attention"
-        ? row.stage_state === "browser"
+        ? row.stage_state === "browser" || row.kind === "page"
           ? "browser"
           : account
             ? "settings"
@@ -842,13 +996,13 @@ export class Activity {
     action.hidden = !kind;
     action.textContent =
       kind === "browser"
-        ? "Open browser"
+        ? "Websites"
         : kind === "settings"
           ? "Settings"
           : "Retry";
     action.onclick = () =>
       void this.perform(async () => {
-        if (kind === "browser") await this.d.recover(row.id);
+        if (kind === "browser") this.filter("websites");
         else if (kind === "settings") this.d.settings();
         else {
           const result = await this.d.call("queue_control", {
@@ -882,7 +1036,7 @@ export class Activity {
     this.detailRequest++;
     if (!open) return;
     body.hidden = false;
-    node.querySelector("button")!.setAttribute("aria-expanded", "true");
+    node.querySelector(".activity-item")!.setAttribute("aria-expanded", "true");
     body.textContent = "Loading source progress…";
     await this.loadDetails(id, body, 0);
   }
@@ -910,13 +1064,27 @@ export class Activity {
               waiting: "Automatic retry",
               failed: "Failed",
               blocked: "Needs attention",
-              browser: "Browser needed",
+              browser: "Page incomplete",
+              skipped: "Skipped",
               complete: "Complete",
               unavailable: "Unavailable",
             } as Record<string, string>
           )[s.state] || s.state;
         row.innerHTML = `<span>${this.d.escape(this.d.stage(s.kind))}</span><span class="muted">${label}${s.state === "waiting" && s.next_at ? ` · ${clock(s.next_at)}` : ""}</span>${s.error ? `<p class="muted">${this.d.escape(this.d.issue(s.error))}</p>` : ""}`;
         stages.append(row);
+      }
+      if (!offset && data.deferred?.length) {
+        const info = document.createElement("p");
+        info.className = "muted";
+        info.textContent = `Not selected yet: ${data.deferred.map((k: string) => ({ text: "text", images: "images", video: "video & audio", pages: "linked pages" })[k as "text"]).join(", ")}.`;
+        body.prepend(info);
+      }
+      if (!offset && data.missing_sources?.length) {
+        const info = document.createElement("p");
+        info.className = "muted";
+        info.textContent =
+          "Some X context is missing. Fill missing details from Import.";
+        body.prepend(info);
       }
       if (!offset && !data.stages.length)
         stages.textContent = "Source processing hasn’t started.";
@@ -960,7 +1128,9 @@ export class Activity {
       const b = r.limits;
       const limit = b?.reason;
       const usage = b
-        ? `${n(b.x_used)} / ${b.x_limit ? n(b.x_limit) : "∞"} X requests${r.media_processing ? ` · ${n(b.description_used)} / ${b.description_limit ? n(b.description_limit) : "∞"} descriptions` : ""}`
+        ? r.media_processing
+          ? `${n(b.description_used)} image descriptions${b.description_limit ? ` / ${n(b.description_limit)}` : ""}`
+          : `${n(b.x_used)} X requests${b.x_limit ? ` / ${n(b.x_limit)}` : ""}`
         : "";
       const html = `<div><strong>${this.d.escape(r.label)}</strong><p class="muted">${new Date(r.created * 1000).toLocaleString()} · ${r.activity_state === "limited" ? "Limit reached" : r.activity_state === "attention" ? "Needs attention" : r.activity_state === "pausing" ? "Pausing…" : r.activity_state.charAt(0).toUpperCase() + r.activity_state.slice(1)}</p><p class="muted">${usage}</p></div><div class="actions">${limit ? `<button data-extend>Add 100 ${limit === "items" ? "bookmarks" : limit === "x" ? "X requests" : "descriptions"}</button>` : r.pending_steps ? `<button data-control="${r.activity_state === "running" ? "pause" : "resume"}" ${r.activity_state === "pausing" ? "disabled" : ""}>${r.activity_state === "running" ? "Pause" : r.activity_state === "pausing" ? "Pausing…" : "Resume"}</button>` : ""}${r.retryable_steps && !limit ? '<button data-control="retry">Retry failures</button>' : ""}</div>`;
       if (row.innerHTML === html || row.querySelector("[aria-busy]")) continue;
@@ -1001,6 +1171,128 @@ export class Activity {
       );
     }
   }
+  private selectionCopy() {
+    const show =
+      this.selected.size > 0 && !["history", "websites"].includes(this.view);
+    $("activity-selection").hidden = !show;
+    $("activity-clear-selection").hidden = !show;
+    this.text(
+      "activity-selection",
+      `Process ${n(this.selected.size)} selected`,
+    );
+  }
+  private workArgs() {
+    return {
+      categories: Array.from(
+        document.querySelectorAll<HTMLInputElement>(
+          '[name="work-category"]:checked',
+        ),
+      ).map((e) => e.value),
+      content: this.choices.get("activity-content")!.value,
+      ...(this.selected.size ? { items: [...this.selected] } : {}),
+    };
+  }
+  private chooseWork() {
+    this.popover("activity-limits-options", button("activity-process-limits"));
+    void this.previewWork();
+  }
+  private async previewWork() {
+    if (!$("activity-limits-options").matches(":popover-open")) return;
+    const request = ++this.previewRequest,
+      args = this.workArgs();
+    this.disable("activity-start-processing", true);
+    if (!args.categories.length) {
+      this.text("activity-work-preview", "Choose at least one category.");
+      return;
+    }
+    this.text("activity-work-preview", "Checking…");
+    try {
+      const r = await this.d.call("processing_preview", args);
+      if (request !== this.previewRequest) return;
+      this.text(
+        "activity-work-preview",
+        `${plural(r.bookmarks)} with unfinished work${this.selected.size ? " in your selection" : ""}.`,
+      );
+      this.text(
+        "activity-start-processing",
+        r.bookmarks ? `Process ${plural(r.bookmarks)}` : "Nothing waiting",
+      );
+      this.disable("activity-start-processing", !r.bookmarks || !this.online);
+    } catch (e) {
+      if (request === this.previewRequest)
+        this.text("activity-work-preview", (e as Error).message);
+    }
+  }
+  private async services(args?: Record<string, unknown>) {
+    const r = await this.d.call("page_services", args);
+    this.text(
+      "activity-service-state",
+      r.tinyfish_configured ? "TinyFish key saved" : "TinyFish not connected",
+    );
+    $("activity-remove-key").hidden = !r.tinyfish_configured;
+  }
+  private renderGroups(replace: boolean) {
+    const root = $("activity-rows"),
+      esc = this.d.escape;
+    if (replace || root.querySelector("[data-item], [data-run]"))
+      root.replaceChildren();
+    const ids = new Set(this.groups.map((g) => g.id));
+    root.querySelectorAll<HTMLElement>("[data-site]").forEach((e) => {
+      if (!ids.has(e.dataset.site!)) e.remove();
+    });
+    for (const g of this.groups) {
+      let row = root.querySelector<HTMLElement>(
+        `[data-site="${CSS.escape(g.id)}"]`,
+      );
+      if (!row) {
+        row = document.createElement("article");
+        row.className = "activity-site";
+        row.dataset.site = g.id;
+        root.append(row);
+      }
+      const labels: Record<string, string> = {
+        service: "Page service needs attention",
+        access: "Sign-in or access required",
+        extraction: "Page extraction incomplete",
+        unavailable: "Source unavailable",
+        skipped: "Skipped",
+      };
+      const html = `<div><strong>${esc(g.domain)}</strong><p class="muted">${n(g.pages)} page${g.pages === 1 ? "" : "s"} · ${plural(g.bookmarks)} · ${labels[g.kind]}</p></div><div class="actions">${g.kind === "access" || g.kind === "extraction" ? "<button data-site-agent>Ask ChatGPT to recover</button>" : ""}${g.kind === "service" ? "<button data-site-service>Page services</button>" : ""}${g.kind === "extraction" ? '<button data-site-action="retry">Retry</button>' : ""}<button class="quiet" data-site-action="${g.kind === "skipped" ? "restore" : "skip"}">${g.kind === "skipped" ? "Restore" : "Skip"}</button></div>`;
+      if (
+        row.dataset.render === html ||
+        row.querySelector("[aria-busy]") ||
+        row.contains(document.activeElement)
+      )
+        continue;
+      row.innerHTML = html;
+      row.dataset.render = html;
+      row.querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
+        b.dataset.requiresOnline = "";
+        b.onclick = () =>
+          void this.perform(async () => {
+            if (b.hasAttribute("data-site-service")) {
+              this.popover("activity-services-options", b);
+              await this.services();
+              return;
+            }
+            if (b.hasAttribute("data-site-agent")) {
+              await this.d.recover(g.domain);
+              return;
+            }
+            const r = await this.d.call("page_recovery", {
+              action: b.dataset.siteAction,
+              domain: g.domain,
+              kind: g.kind,
+            });
+            this.text(
+              "activity-feedback",
+              `${r.changed} source${r.changed === 1 ? "" : "s"} ${b.dataset.siteAction === "skip" ? "skipped" : "queued"}.`,
+            );
+            await this.update();
+          }, b);
+      });
+    }
+  }
   private async startImport(recheck: boolean) {
     const imp = this.data?.import;
     const limits = {
@@ -1031,7 +1323,7 @@ export class Activity {
     else if (r?.pending_steps)
       await this.d.call("queue_control", { action: "resume", run: r.id });
     else if (s.counts.eligible) {
-      await this.startProcessing();
+      this.chooseWork();
       return;
     } else {
       this.filter("attention");
@@ -1043,11 +1335,15 @@ export class Activity {
     await this.d.call("process_saved", {
       mode: "repair",
       scope: "pending",
+      ...this.workArgs(),
       limits: {
-        x_requests: this.value("activity-process-x"),
         description_requests: this.value("activity-descriptions"),
       },
     });
+    this.closePopovers(true);
+    this.selected.clear();
+    this.selectionCopy();
+    await this.load(true);
     await this.update();
   }
   private async update() {

@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT / "package.json").read_text())["version"]
-PROCESSOR_VERSION = "6"
+PROCESSOR_VERSION = "7"
 HOME = Path(
     os.environ.get(
         "BOOKMARK_LIBRARY_HOME", "~/Library/Application Support/BookmarkLibrary"
@@ -179,6 +179,7 @@ def coverage_kind(message):
 
 
 def upsert_page(c, page, run=None, process=True):
+    __import__("import_sources").ingest(c, page)
     includes = page.get("includes", {})
     users = {u["id"]: u for u in includes.get("users", [])}
     posts = page.get("data", [])
@@ -223,8 +224,7 @@ def upsert_page(c, page, run=None, process=True):
                 time.time(),
             ),
         )
-        from pipeline import snapshot_metrics, publish_post
-        snapshot_metrics(c, post, own_media)
+        from pipeline import publish_post
         publish_post(c, post["id"], post, row_title=title)
         row = c.execute(
             "SELECT processed_hash,processor,coverage FROM items WHERE id=?",
@@ -243,6 +243,8 @@ def upsert_page(c, page, run=None, process=True):
                 {"mode": "repair" if changed or sample else "rebuild"},
                 run=run,
             )
+
+    __import__("workplan").refresh_available(c, [p["id"] for p in posts])
 
 
 def enqueue(c, kind, item="", payload=None, run=None):

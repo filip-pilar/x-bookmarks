@@ -11,7 +11,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home =
   process.env.BOOKMARK_LIBRARY_HOME ||
   join(homedir(), "Library/Application Support/BookmarkLibrary");
-const ui = "ui://bookmark-library/control-0.8.1.html";
+const ui = "ui://bookmark-library/control-0.9.0.html";
 const iconSource = await readFile(join(root, "assets/x-bookmark.svg"), "utf8");
 const icons = (["light", "dark"] as const).map((theme) => ({
   src:
@@ -52,7 +52,7 @@ async function ensure() {
     current = await request("status");
   } catch {}
   if (current) {
-    if (current.backend_version !== "0.8.1")
+    if (current.backend_version !== "0.9.0")
       throw new Error(
         "Bookmark Library backend needs a restart to load the installed update. Pause processing before restarting its local service.",
       );
@@ -92,7 +92,7 @@ async function ensure() {
           status = await request("status");
         } catch {}
         if (status) {
-          if (status.backend_version !== "0.8.1")
+          if (status.backend_version !== "0.9.0")
             throw new Error(
               "A different Bookmark Library backend is already running. Pause processing and restart its local service to load the update.",
             );
@@ -128,7 +128,7 @@ async function call(action: string, args: Record<string, unknown> = {}) {
   }
 }
 serveStdio(() => {
-  const server = new McpServer({ name: "bookmark-library", version: "0.8.1" });
+  const server = new McpServer({ name: "bookmark-library", version: "0.9.0" });
   const runLimits = z
     .object({
       x_requests: z.number().int().min(0).max(100000).optional(),
@@ -375,17 +375,15 @@ serveStdio(() => {
     "sync",
     {
       description:
-        "Import the first inventory, or sync new bookmarks in pages of 10 until an entirely previously saved page is reached. mode=sample imports at most 10 recent bookmarks without scanning folders; mode=full checks all exposed pages and folders. Routine sync refreshes folders when their last check is at least 24 hours old. Saved sources are reused; no automatic 24-hour context refresh. Media processing is separate by default; pass process=true only when also authorized. X reads use credits. Only call for an explicit import/sync request or an authorized automation.",
+        "Import the first inventory, or sync new bookmarks in pages of 10 until an entirely previously saved page is reached. mode=sample imports at most 10 recent bookmarks without scanning folders; mode=full checks all exposed pages and folders. Routine sync refreshes folders when their last check is at least 24 hours old. Saved sources are reused; no automatic 24-hour context refresh. Import also collects only missing direct reply/quote posts and media information, reusing saved copies. mode=details fills missing details for saved bookmarks without importing more. Processing is separate; process must be false. X reads use credits. Only call for an explicit import/sync request or an authorized automation.",
       inputSchema: z.object({
-        mode: z.enum(["new", "full", "sample"]).default("new"),
+        mode: z.enum(["new", "full", "sample", "details"]).default("new"),
         process: z
           .boolean()
           .default(false)
-          .describe(
-            "Explicitly authorize media/context processing after import. Default saves inventory and post text only.",
-          ),
+          .describe("Must be false. Start processing separately after import."),
         limits: runLimits.describe(
-          "Persistent per-run request and item limits. Zero means unlimited. Defaults: 100 X requests, 100 image descriptions, no item limit. Requests are not a monetary cap.",
+          "Persistent per-run request and item limits. Zero means unlimited. Defaults: 100 X requests and no item limit. Requests are not a monetary cap.",
         ),
       }),
       annotations: {
@@ -401,16 +399,30 @@ serveStdio(() => {
     "process_saved",
     {
       description:
-        "Process already imported items without scanning bookmarks. Use scope=pending for newly imported or changed bookmarks without existing work; status.unprocessed gives this count. scope=all also revisits completed bookmarks. rebuild uses retained sources without network fetching; repair fetches missing sources; refresh deliberately refetches source context and may use X credits. Require an explicit request for repair or refresh. Does not run a bookmark import.",
+        "Process selected saved bookmarks and categories. No X API lookups are permitted; fill missing X details through sync mode=details. repair may download media and public linked pages and use authorized ChatGPT image descriptions; rebuild uses retained files. Completed evidence is reused. Choose categories text/images/video/pages and content all/text/images/video; text content means posts without image/video in captured context. Existing runs and failures are controlled separately.",
       inputSchema: z.object({
-        mode: z.enum(["rebuild", "repair", "refresh"]),
+        mode: z.enum(["rebuild", "repair"]).default("repair"),
         scope: z
           .enum(["pending", "all"])
           .optional()
           .describe(
-            "Defaults to all for explicit rebuild/repair/refresh workflows. Use pending for normal processing after import; existing runs and failures are handled separately.",
+            "Defaults to pending for normal processing after import. Use all for an explicit revisit of prepared categories; existing runs and failures are handled separately.",
           ),
-        limits: runLimits.unwrap().omit({ items: true }).optional(),
+        limits: runLimits
+          .unwrap()
+          .omit({ items: true, x_requests: true })
+          .optional(),
+        categories: z
+          .array(z.enum(["text", "images", "video", "pages"]))
+          .min(1)
+          .max(4)
+          .optional(),
+        content: z.enum(["all", "text", "images", "video"]).optional(),
+        items: z
+          .array(z.string().regex(/^\d{1,25}$/))
+          .min(1)
+          .max(500)
+          .optional(),
         item: z
           .string()
           .regex(/^\d{1,25}$/)
@@ -551,7 +563,15 @@ serveStdio(() => {
     [
       "browser_pending",
       "List linked pages awaiting a desktop agent. Use the appropriate existing browser profile; do not assume in-app Browser shares Chrome login. This tool does not navigate or import.",
-      z.object({ limit: z.number().int().min(1).max(50).optional() }),
+      z.object({
+        limit: z.number().int().min(1).max(50).optional(),
+        offset: z.number().int().nonnegative().optional(),
+        item: z
+          .string()
+          .regex(/^\d{1,25}$/)
+          .optional(),
+        domain: z.string().max(253).optional(),
+      }),
     ],
   ] as const;
   for (const [name, description, inputSchema] of localTools)
@@ -573,6 +593,78 @@ serveStdio(() => {
       },
     },
     (args) => call("clear_cache", args),
+  );
+  server.registerTool(
+    "processing_preview",
+    {
+      description:
+        "Count unfinished processing for the chosen bookmark types and categories. Does not start work.",
+      inputSchema: z.object({
+        categories: z
+          .array(z.enum(["text", "images", "video", "pages"]))
+          .min(1)
+          .max(4)
+          .optional(),
+        content: z.enum(["all", "text", "images", "video"]).optional(),
+        items: z
+          .array(z.string().regex(/^\d{1,25}$/))
+          .min(1)
+          .max(500)
+          .optional(),
+      }),
+      annotations: { readOnlyHint: true },
+    },
+    (args) => call("processing_preview", args),
+  );
+  server.registerTool(
+    "page_services",
+    {
+      description:
+        "Read public-page service status or save/remove the user's TinyFish key locally. Fetch only, capped at 1,000 requests/day; no Agent/Browser billing. Never include a key in diagnostics. Does not start work.",
+      inputSchema: z.object({ tinyfish_key: z.string().max(512).optional() }),
+      annotations: { readOnlyHint: false, openWorldHint: false },
+    },
+    (args) => call("page_services", args),
+  );
+  server.registerTool(
+    "recovery_groups",
+    {
+      description:
+        "List unresolved linked pages grouped by website. Does not navigate or resume processing.",
+      inputSchema: z.object({
+        view: z.enum(["all", "attention", "partial"]).optional(),
+        offset: z.number().int().nonnegative().optional(),
+        limit: z.number().int().min(1).max(50).optional(),
+      }),
+      annotations: { readOnlyHint: true },
+    },
+    (args) => call("recovery_groups", args),
+  );
+  server.registerTool(
+    "page_recovery",
+    {
+      description:
+        "Explicitly retry recoverable failed work, skip selected unresolved sources, or restore skipped sources. Retry preserves automatic backoff and excludes sign-in-needed pages. Skip preserves saved evidence. Only call when requested.",
+      inputSchema: z.object({
+        action: z.enum(["retry", "skip", "restore"]),
+        kind: z
+          .enum(["access", "extraction", "unavailable", "skipped", "service"])
+          .optional(),
+        category: z.enum(["text", "images", "video", "pages"]).optional(),
+        domain: z.string().max(253).optional(),
+        items: z
+          .array(z.string().regex(/^\d{1,25}$/))
+          .min(1)
+          .max(500)
+          .optional(),
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
+    },
+    (args) => call("page_recovery", args),
   );
   server.registerTool(
     "browser_capture",

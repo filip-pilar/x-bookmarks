@@ -49,38 +49,6 @@ def reusable(record):
     return mode != "refresh" or (record or {}).get("generation") == generation
 
 
-def context_request(path, params, get):
-    from store import db
-    from xapi import FIELDS
-    import re
-
-    match = re.fullmatch(r"/tweets/([0-9]{1,25})", path)
-    if match and params == FIELDS and POLICY.get()[0] != "refresh":
-        with db() as c:
-            row = c.execute(
-                "SELECT raw FROM items WHERE id=? AND active=1", (match[1],)
-            ).fetchone()
-        if row:
-            raw = json.loads(row[0])
-            return {"data": raw["post"], "includes": raw["includes"]}
-    key = fingerprint([path, params])
-    file = HOME / "sources/x" / (key + ".json")
-    saved = cached_json(file)
-    if saved and reusable(saved):
-        return saved["response"]
-    if POLICY.get()[0] == "rebuild":
-        raise RuntimeError("Saved source missing; use Repair to fetch it.")
-    result = get(path, params)
-    if not isinstance(result, dict) or not any(
-        k in result for k in ("data", "meta", "errors")
-    ):
-        raise RuntimeError("X returned an invalid source response; progress retained.")
-    # A partial response can be retried; do not make it a permanent cache hit.
-    if not result.get("errors"):
-        atomic(file, {"response": result, "generation": POLICY.get()[1]})
-    return result
-
-
 def page_data(page, cursor=None, seen=(), *, folder=False):
     if not isinstance(page, dict):
         raise RuntimeError("Invalid X page; previous inventory retained.")

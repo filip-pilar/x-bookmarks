@@ -92,6 +92,11 @@ def access_token(force=False):
 
 
 def get(path, params=None):
+    run = __import__('controls').RUN.get()
+    if run:
+        with db() as c:
+            if not c.execute("SELECT 1 FROM jobs WHERE run=? AND kind='sync'", (run,)).fetchone():
+                raise RuntimeError('X lookups are only permitted during import.')
     if config().get("offline"):
         raise RuntimeError("Network disabled for saved-sample validation.")
     url = API_BASE + path + ("?" + urlencode(params) if params else "")

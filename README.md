@@ -55,3 +55,9 @@ CI checks source/build consistency, compiles native source on Apple silicon, and
 [MIT license](LICENSE). [Third-party notices](plugin/THIRD_PARTY_NOTICES.md).
 
 Activity contains separate Import and Processing controls, a paginated queue, source progress and History. Library retains List/Gallery. Import offers Next 100, Next 500 or All available; the X request guardrail is under Limits and disclosed before starting. Continue import preserves the saved cursor and adds the chosen allowance. Process targets the displayed number of new or changed bookmarks; existing runs use Resume/Retry. Review the displayed run limits before starting a full library; 0 means unlimited in tools. Settings → Processing → Advanced controls temporary space (8 GiB default), video resolution (480p default) and workers (one per lane by default). Limits and progress persist across restarts; reaching a limit pauses the run rather than discarding work. See [processing and storage](docs/ARCHITECTURE.md#processing-and-temporary-storage).
+
+## Import and processing
+
+Activity keeps importing and processing separate. Import collects only missing direct reply/quote context, media details and engagement snapshots using X credits. Processing makes no X API calls. Choose bookmark types or selected items, then text, images, video/audio and linked-page work independently. Saved text remains usable while other categories wait.
+
+Linked pages try local extraction, Jina Reader and optional TinyFish Fetch. Activity → Websites groups unresolved pages for batch retry, skip or desktop-agent recovery. TinyFish needs the user's own key and has a local 1,000-attempt daily cap; no paid Agent/Browser fallback is used. Private pages stay local. Quota waits resume automatically, while genuine sign-in and inaccessible interactive pages can still need attention. [Architecture and limits](docs/ARCHITECTURE.md) describe the boundaries.

@@ -33,7 +33,7 @@ def run_details(c, run):
     work = c.execute("SELECT kind,json_extract(payload,'$.mode') AS mode,json_extract(payload,'$.process') AS process FROM jobs WHERE run=? ORDER BY CASE kind WHEN 'sync' THEN 0 ELSE 1 END,created LIMIT 1", (run['id'],)).fetchone()
     run['media_processing'] = bool(not work or work['kind'] != 'sync' or work['process'])
     run['label'] = ('Retry unfinished work' if not work else
-        {'new': 'Sync new bookmarks', 'full': 'Full bookmark sync', 'folders': 'Folder sync', 'sample': 'Import 10 bookmarks'}.get(work['mode'], 'Bookmark sync') if work['kind'] == 'sync' else
+        {'details': 'Fill missing X details', 'new': 'Sync new bookmarks', 'full': 'Full bookmark sync', 'folders': 'Folder sync', 'sample': 'Import 10 bookmarks'}.get(work['mode'], 'Bookmark sync') if work['kind'] == 'sync' else
         {'rebuild': 'Rebuild saved content', 'refresh': 'Refresh sources'}.get(work['mode'], 'Process bookmarks'))
     run['items'] = c.execute("SELECT count(DISTINCT item) FROM (SELECT item FROM jobs WHERE run=? UNION SELECT item FROM stages WHERE run=?) WHERE item!=''", (run['id'], run['id'])).fetchone()[0]
     imported = c.execute("SELECT max(json_extract(payload,'$.returned')) FROM jobs WHERE run=? AND kind='sync'", (run['id'],)).fetchone()[0]
