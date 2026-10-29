@@ -1,14 +1,14 @@
 # Verification and remaining limitations
 
-Version 0.9.0 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
+Version 0.9.1 is a source-only preview. Recipients build the native helpers and download models on their own Mac. No maintainer Apple Developer account, signing certificate, native executable or model weight is required in the release.
 
-## Verified for 0.9.0 workflow
+## Verified for 0.9.1 workflow
 
 - Controlled HTTP/SQLite import resumed a cached partial page, captured shared direct context once, and made zero X requests during selective processing. Grandparent/quote chains were excluded; deferred categories remained visible.
 - The real stage scheduler and local embedding model completed saved post/page text while a page quota wait survived restart without consuming retry attempts. No X calls occurred.
 - One desktop capture supplied 61 waiting bookmarks. Retry/skip/restore preserved unrelated waiting work. Jina/TinyFish HTTP adapters and persistent free-quota admission were exercised with controlled responses; diagnostics excluded keys and URLs.
 - An isolated copy of 100 bookmarks and 2,572 evidence chunks migrated paused, preserving items, vectors, lexical index, folders, calls, presentations and engagement observations. Repeated migration did not resume work.
-- The actual built panel, MCP server and backend were rehearsed in a controlled desktop host. Choose work did not move queue rows; selected-item preview, failed-start feedback, website groups, services, empty search and a 390-pixel dark layout were checked. An already-open Codex panel is a separate runtime surface.
+- The actual built panel, MCP server and backend were rehearsed in a controlled desktop host. Choose work did not move queue rows; selected-item preview, failed-start feedback, website groups, services, empty search and a 390-pixel dark layout were checked. Recovery handoff was checked for accepted requests, explicit host rejection and a copyable fallback on unsupported hosts; rejection did not report success. An already-open Codex panel is a separate runtime surface.
 - Live public capture recovered design.how/systems and manifestos.tech through Jina. The directory's truncated local extraction escalated to 606 words. The Octoglow canvas application stayed incomplete; its fallback message was not accepted as captured content. Links inside pages were not followed.
 
 TinyFish live execution needs a user key and has not been checked against the provider account. Controlled responses do not establish real-site success. Authenticated recovery may require an active desktop task and personal access. Interactive applications, paywalls, scanned PDFs and inaccessible sources can remain partial. No bulk import ran as validation.

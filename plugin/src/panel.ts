@@ -8,7 +8,7 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-const appInfo = { name: "Bookmark Library", version: "0.9.0" };
+const appInfo = { name: "Bookmark Library", version: "0.9.1" };
 const app = new App(appInfo),
   extensions = new OpenAIExtensions(app);
 const $ = (id: string) => document.getElementById(id)!;
@@ -377,11 +377,13 @@ async function draft(text: string, send = false) {
     showDialog("draft-dialog");
     return;
   }
-  await extensions.message.send({
+  const result = await extensions.message.send({
     role: "user",
     content: [{ type: "text", text }],
     _meta: { "openai/message": { target: "active", send } },
   });
+  if (result.isError)
+    throw new Error("ChatGPT couldn’t accept the request. Try again.");
   feedback(
     "notice",
     send ? "Recovery requested in ChatGPT." : "Request drafted in ChatGPT.",
